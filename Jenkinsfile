@@ -11,6 +11,7 @@ pipeline {
         string(name: 'REPO_URL', defaultValue: 'https://github.com/duncanlester/testcafe-api.git', description: 'Git repository URL to checkout')
         string(name: 'REPO_BRANCH', defaultValue: 'main', description: 'Branch to checkout')
         string(name: 'REPO_CREDENTIALS_ID', defaultValue: '', description: 'Credentials ID for private repos (optional)')
+        string(name: 'PROJECT_NAME', defaultValue: 'sbom-uploader', description: 'Project name for Dependency Track')
     }
 
     environment {
@@ -18,7 +19,6 @@ pipeline {
         DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "${PROJECT_NAME ?: env.JOB_NAME}"
     }
 
     stages {
