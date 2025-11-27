@@ -27,8 +27,13 @@ pipeline {
         }
         stage('Generate SBOM') {
             steps {
-                sh 'npm install -g @cyclonedx/bom'
-                sh 'export PATH="$PATH:$(npm bin -g)" && cyclonedx-bom -o sbom.json -f json'
+                sh """
+                    if ! command -v cyclonedx-npm >/dev/null 2>&1; then
+                      echo "Installing latest @cyclonedx/cyclonedx-npm globally..."
+                      npm install -g @cyclonedx/cyclonedx-npm@3 --no-progress --no-audit
+                    fi
+                    cyclonedx-npm --output-format json --output-file ${SBOM_FILE}
+                """
             }
         }
         stage('Upload SBOM to Dependency Track') {
