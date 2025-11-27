@@ -15,7 +15,7 @@ pipeline {
         DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "sbom-uploader-nodejs" // Static, safe name for Node.js projects
+        PROJECT_NAME = "sbom-uploader-nodejs"
         REPO_BRANCH = 'main'
     }
 
@@ -27,7 +27,7 @@ pipeline {
         }
         stage('Generate SBOM') {
             steps {
-                sh "npm install -g @cyclonedx/bom && cyclonedx-bom -o ${SBOM_FILE} -f json"
+                sh "npm install -g @cyclonedx/bom && export PATH=\\\"\\$PATH:\\$(npm bin -g)\\\" && cyclonedx-bom -o ${SBOM_FILE} -f json"
             }
         }
         stage('Upload SBOM to Dependency Track') {
