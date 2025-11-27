@@ -27,20 +27,12 @@ pipeline {
         }
         stage('Generate SBOM') {
             steps {
-                sh '''
-                npm install -g @cyclonedx/bom
-                cyclonedx-bom -o ${env.SBOM_FILE} -f json
-                '''
+                sh "npm install -g @cyclonedx/bom && cyclonedx-bom -o ${SBOM_FILE} -f json"
             }
         }
         stage('Upload SBOM to Dependency Track') {
             steps {
-                sh '''
-                curl -X POST -H "Content-Type: application/xml" \
-                     -H "X-Api-Key: $DEPENDENCY_TRACK_API_KEY" \
-                     --data-binary "@${SBOM_FILE}" \
-                     $DEPENDENCY_TRACK_URL
-                '''
+                sh "curl -X POST -H \"Content-Type: application/xml\" -H \"X-Api-Key: $DEPENDENCY_TRACK_API_KEY\" --data-binary \"@${SBOM_FILE}\" $DEPENDENCY_TRACK_URL"
             }
         }
         stage('Show Dependency Track Link') {
