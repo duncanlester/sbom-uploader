@@ -1,0 +1,17 @@
+FROM node:18-bullseye
+
+RUN apt-get update && apt-get install -y git
+
+# Install Go
+RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && rm go1.21.5.linux-amd64.tar.gz
+
+COPY . /app
+WORKDIR /app
+
+RUN go mod tidy
+RUN go build -o sbom-uploader .
+
+ENTRYPOINT ["./sbom-uploader"]
