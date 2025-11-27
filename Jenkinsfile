@@ -2,7 +2,7 @@
 pipeline {
     agent {
         docker {
-            image 'node:20-bullseye'
+            image 'image:node:18'
             args '--network dtrack-network'
         }
     }
