@@ -22,7 +22,7 @@ pipeline {
     stages {
         stage('Checkout Source') {
             steps {
-                git url: params.REPO_URL, branch: params.REPO_BRANCH
+                git url: params.REPO_URL, branch: params.REPO_BRANCH, credentialsId: 'duncanlester'
             }
         }
         stage('Install CycloneDX') {
