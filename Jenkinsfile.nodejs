@@ -21,10 +21,8 @@ pipeline {
 
     stages {
         stage('Checkout Source') {
-            stage('Checkout Source') {
-                steps {
-                    git url: 'https://github.com/duncanlester/testcafe-api.git', branch: 'main', credentialsId: 'duncanlester'
-                }
+            steps {
+                git url: 'https://github.com/duncanlester/testcafe-api.git', branch: 'main', credentialsId: 'duncanlester'
             }
         }
         stage('Generate SBOM') {
