@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'node:18'
-            args '--network dtrack-network'
-        }
-    }
+    agent none
 
     parameters {
         string(name: 'REPO_URL', defaultValue: 'https://github.com/duncanlester/testcafe-api.git', description: 'Git repository URL to checkout')
@@ -21,11 +16,18 @@ pipeline {
 
     stages {
         stage('Checkout Source') {
+            agent any
             steps {
-                git url: 'https://github.com/duncanlester/testcafe-api.git', branch: 'main', credentialsId: 'duncanlester'
+                git url: params.REPO_URL, branch: env.REPO_BRANCH, credentialsId: 'duncanlester'
             }
         }
         stage('Generate SBOM') {
+            agent {
+                docker {
+                    image 'node:18'
+                    args '--network dtrack-network'
+                }
+            }
             steps {
                 sh """
                     if ! command -v cyclonedx-npm >/dev/null 2>&1; then
@@ -37,11 +39,18 @@ pipeline {
             }
         }
         stage('Upload SBOM to Dependency Track') {
+            agent {
+                docker {
+                    image 'node:18'
+                    args '--network dtrack-network'
+                }
+            }
             steps {
                 sh "curl -X POST -H \"Content-Type: application/xml\" -H \"X-Api-Key: $DEPENDENCY_TRACK_API_KEY\" --data-binary \"@${SBOM_FILE}\" $DEPENDENCY_TRACK_URL"
             }
         }
         stage('Show Dependency Track Link') {
+            agent any
             steps {
                 echo "View your SBOM and vulnerabilities in the Dependency Track UI."
             }
