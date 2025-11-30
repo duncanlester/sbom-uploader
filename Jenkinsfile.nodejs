@@ -58,8 +58,7 @@ pipeline {
                         -d '{
                             "name": "${PROJECT_NAME}",
                             "version": "${PROJECT_VERSION}",
-                            "active": true,
-                            "autoCreate": true
+                            "active": true
                         }'
                     """
                 }
