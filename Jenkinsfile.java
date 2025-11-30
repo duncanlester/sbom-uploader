@@ -3,6 +3,7 @@ pipeline {
 
     parameters {
         string(name: 'REPO_URL', defaultValue: 'https://github.com/apache/kafka.git', description: 'Git repository URL to checkout')
+        string(name: 'REPO_REF', defaultValue: 'main', description: 'Branch or tag to checkout (e.g., main or refs/tags/4.1.0)')
     }
 
     environment {
@@ -11,13 +12,16 @@ pipeline {
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'target/sbom.json'
         PROJECT_NAME = "java-sbom-uploader"
-        REPO_BRANCH = '4.1.0'
     }
 
     stages {
         stage('Checkout Source') {
             steps {
-                git url: params.REPO_URL, branch: env.REPO_BRANCH, credentialsId: 'duncanlester'
+                git(
+                    url: params.REPO_URL,
+                    branch: params.REPO_REF,
+                    credentialsId: 'duncanlester'
+                )
             }
         }
         stage('Install jq') {

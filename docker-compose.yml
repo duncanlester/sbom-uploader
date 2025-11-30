@@ -33,7 +33,6 @@ services:
     volumes:
       - dtrack_apiserver_data:/data
     healthcheck:
-      # use the apiserver /api/v1/version endpoint
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/v1/version || exit 1"]
       interval: 30s
       timeout: 10s
@@ -57,31 +56,6 @@ services:
       retries: 3
     networks:
       - dtrack-network
-
-  jenkins-master:
-    container_name: jenkins-master
-    build: .
-    user: root
-    environment:
-      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
-      - JENKINS_URL=http://jenkins-master:8080
-    ports:
-      - "8080:8080"
-      - "50000:50000"
-    networks:
-      - dtrack-network
-    volumes:
-      - jenkins_home_data_1:/var/jenkins_home
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: always
-    secrets:
-      - admin_password
-
-  node-service:
-    image: node:14
-    container_name: node-service
-    networks:
-    - dtrack-network
 
 secrets:
   admin_password:
