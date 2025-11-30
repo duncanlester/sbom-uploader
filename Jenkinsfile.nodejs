@@ -22,9 +22,6 @@ pipeline {
         }
         stage('Debug Workspace') {
             steps {
-                sh 'pwd'
-                sh 'ls -l'
-                sh 'cat package.json || echo "package.json not found!"'
                 sh 'node -v'
                 sh 'npm -v'
             }
