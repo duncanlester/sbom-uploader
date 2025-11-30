@@ -28,6 +28,11 @@ pipeline {
                 sh 'npm install --no-audit --no-progress'
             }
         }
+        stage('Install jq') {
+            steps {
+                sh 'which jq || (apt-get update && apt-get install -y jq)'
+            }
+        }
         stage('Generate SBOM') {
             steps {
                 sh """
