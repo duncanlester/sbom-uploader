@@ -55,6 +55,25 @@ pipeline {
                 }
             }
         }
+        stage('Get Dependency Track Project UUID') {
+            steps {
+                withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
+                    script {
+                        def response = sh(
+                            script: """
+                                curl -s -H "X-Api-Key: $DT_API_KEY" "$DEPENDENCY_TRACK_URL/api/v1/project?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
+                            """,
+                            returnStdout: true
+                        )
+                        def uuid = sh(
+                            script: "echo '$response' | jq -r '.[0].uuid'",
+                            returnStdout: true
+                        ).trim()
+                        env.DT_PROJECT_UUID = uuid
+                    }
+                }
+            }
+        }
         stage('Upload SBOM to Dependency Track') {
             steps {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
@@ -71,7 +90,7 @@ pipeline {
         }
         stage('Show Dependency Track Link') {
             steps {
-                echo "View your SBOM and vulnerabilities in the Dependency Track UI."
+                echo "View your SBOM and vulnerabilities at: ${DEPENDENCY_TRACK_URL}/project/${env.DT_PROJECT_UUID}"
             }
         }
     }
