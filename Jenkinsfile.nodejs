@@ -23,17 +23,10 @@ pipeline {
                 echo "Finished git checkout."
                 sh 'ls -al'
             }
-        }
-        stage('Debug Checkout') {
+        }   
+        stage('Install Dependencies') {
             steps {
-                sh 'ls -l'
-                sh 'cat package.json || echo "package.json not found!"'
-            }
-        }
-        stage('Debug Workspace') {
-            steps {
-                sh 'node -v'
-                sh 'npm -v'
+                sh 'npm install --no-audit --no-progress'
             }
         }
         stage('Generate SBOM') {
