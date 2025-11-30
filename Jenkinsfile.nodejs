@@ -18,7 +18,7 @@ pipeline {
         stage('Checkout Source') {
             steps {
                 echo "Starting git checkout..."
-                echo params.REPO_URL + " " + env.REPO_BRANCH
+                echo "${params.REPO_URL} ${env.REPO_BRANCH}"
                 git url: params.REPO_URL, branch: env.REPO_BRANCH, credentialsId: 'duncanlester'
                 echo "Finished git checkout."
                 sh 'ls -al'
