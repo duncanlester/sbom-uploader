@@ -17,11 +17,17 @@ pipeline {
     stages {
         stage('Checkout Source') {
             steps {
-                git(
-                    url: params.REPO_URL,
-                    branch: params.REPO_REF, // Use 'main' for branch, '4.1.0' for tag
-                    credentialsId: 'duncanlester'
-                )
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: params.REPO_REF]],
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        url: params.REPO_URL,
+                        credentialsId: 'duncanlester',
+                        refspec: '+refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*'
+                    ]]
+                ])
             }
         }
         stage('Install jq') {
