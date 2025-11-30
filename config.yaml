@@ -1,7 +1,0 @@
-node_repo_url: "https://github.com/duncanlester/testcafe-api.git"
-sbom_file: "sbom.json"
-dependency_track_api_url: "http://localhost:8080/api/v1"
-dependency_track_api_key: "your-dependency-track-api-key"
-project_name: "My-Node-App"
-project_version: "1.0.0"
-report_file: "report.html"
