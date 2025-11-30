@@ -19,7 +19,7 @@ pipeline {
             steps {
                 git(
                     url: params.REPO_URL,
-                    branch: params.REPO_REF,
+                    branch: params.REPO_REF, // Use 'main' for branch, 'refs/tags/4.1.0' for tag
                     credentialsId: 'duncanlester'
                 )
             }
