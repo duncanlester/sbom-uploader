@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'REPO_URL', defaultValue: 'https://github.com/duncanlester/your-java-app.git', description: 'Git repository URL to checkout')
+        string(name: 'REPO_URL', defaultValue: 'https://github.com/apache/kafka.git', description: 'Git repository URL to checkout')
     }
 
     environment {
@@ -11,7 +11,7 @@ pipeline {
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'target/sbom.json'
         PROJECT_NAME = "java-sbom-uploader"
-        REPO_BRANCH = 'main'
+        REPO_BRANCH = '4.1.0'
     }
 
     stages {
