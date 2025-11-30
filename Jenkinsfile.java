@@ -37,7 +37,21 @@ pipeline {
         }
         stage('Generate SBOM (JSON)') {
             steps {
-                sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:2.7.9:makeAggregateBom -Dcyclonedx.outputFormat=json -Dcyclonedx.outputName=sbom'
+                script {
+                    def hasPom = fileExists('pom.xml')
+                    def hasGradle = fileExists('build.gradle')
+                    if (hasPom) {
+                        sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:2.7.9:makeAggregateBom -Dcyclonedx.outputFormat=json -Dcyclonedx.outputName=sbom'
+                    } else if (hasGradle) {
+                        // Ensure the CycloneDX Gradle plugin is available
+                        sh './gradlew cyclonedxBom -Dcyclonedx.outputFormat=json'
+                        // The SBOM will typically be at build/reports/bom.json
+                        // Optionally, copy it to target/sbom.json for consistency
+                        sh 'cp build/reports/bom.json target/sbom.json'
+                    } else {
+                        error 'No pom.xml or build.gradle found in the workspace.'
+                    }
+                }
             }
         }
         stage('Create Dependency Track Project') {
