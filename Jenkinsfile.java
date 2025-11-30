@@ -94,5 +94,11 @@ pipeline {
                 echo "View your SBOM and vulnerabilities at: ${DEPENDENCY_TRACK_URL}/project/${env.DT_PROJECT_UUID}"
             }
         }
+        stage('Debug Workspace') {
+            steps {
+                sh 'ls -al'
+                sh 'find . -name pom.xml'
+            }
+        }
     }
 }
