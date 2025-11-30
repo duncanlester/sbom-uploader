@@ -59,7 +59,7 @@ pipeline {
             steps {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
                     sh 'ls -l sbom.json'
-                    sh 'curl -X POST -H "Content-Type: application/xml" -H "X-Api-Key: $DT_API_KEY" --data-binary "@sbom.json" $DEPENDENCY_TRACK_URL'
+                    sh 'curl -X POST -H "Content-Type: application/json" -H "X-Api-Key: $DT_API_KEY" --data-binary "@sbom.json" $DEPENDENCY_TRACK_URL'
                 }
             }
         }
