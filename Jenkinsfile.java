@@ -31,7 +31,7 @@ pipeline {
         }
         stage('Generate SBOM (JSON)') {
             steps {
-                sh 'mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.7.9:makeAggregateBom -Dcyclonedx.outputFormat=json'
+                sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:2.7.9:makeAggregateBom -Dcyclonedx.outputFormat=json -Dcyclonedx.outputName=sbom'
             }
         }
         stage('Create Dependency Track Project') {
