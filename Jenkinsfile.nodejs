@@ -10,7 +10,7 @@ pipeline {
         DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "sbom-uploader-nodejs"
+        PROJECT_NAME = "sbom-uploader"
         REPO_BRANCH = 'main'
     }
 
@@ -18,6 +18,12 @@ pipeline {
         stage('Checkout Source') {
             steps {
                 git url: params.REPO_URL, branch: env.REPO_BRANCH, credentialsId: 'duncanlester'
+            }
+        }
+        stage('Debug Checkout') {
+            steps {
+                sh 'ls -l'
+                sh 'cat package.json || echo "package.json not found!"'
             }
         }
         stage('Debug Workspace') {
