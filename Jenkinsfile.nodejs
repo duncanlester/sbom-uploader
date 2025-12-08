@@ -49,16 +49,23 @@ pipeline {
         stage('Create Dependency Track Project') {
             steps {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
-                    sh """
-                        curl -X PUT "$DEPENDENCY_TRACK_API_URL/api/v1/project" \
-                        -H "Content-Type: application/json" \
-                        -H "X-Api-Key: $DT_API_KEY" \
-                        -d '{
-                            "name": "${PROJECT_NAME}",
-                            "version": "${PROJECT_VERSION}",
-                            "active": true
-                        }'
-                    """
+                    sh '''
+                        for i in {1..10}; do
+                            if curl -f -X PUT "$DEPENDENCY_TRACK_API_URL/api/v1/project" \
+                                -H "Content-Type: application/json" \
+                                -H "X-Api-Key: $DT_API_KEY" \
+                                -d "{
+                                    \"name\": \"${PROJECT_NAME}\",
+                                    \"version\": \"${PROJECT_VERSION}\",
+                                    \"active\": true
+                                }"; then
+                                echo "Project created successfully"
+                                break
+                            fi
+                            echo "Attempt $i failed, retrying in 5 seconds..."
+                            sleep 5
+                        done
+                    '''
                 }
             }
         }
