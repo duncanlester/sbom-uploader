@@ -36,11 +36,25 @@ pipeline {
                 '''
             }
         }
-        stage('Generate SBOM with Syft') {
+        stage('Install Syft') {
             steps {
                 sh '''
-                    docker run --rm -v $(pwd):/src anchore/syft:latest syft /src -o cyclonedx-json > sbom.json
+                    if ! command -v syft &> /dev/null; then
+                        echo "Installing Syft..."
+                        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+                    fi
                 '''
+            }
+        }
+        stage('Generate SBOM with Syft') {
+            agent {
+                docker {
+                    image 'anchore/syft:latest'
+                    args '-v $(pwd):/src'
+                }
+            }
+            steps {
+                sh 'syft /src -o cyclonedx-json > /src/sbom.json'
             }
         }
         stage('Install jq') {
