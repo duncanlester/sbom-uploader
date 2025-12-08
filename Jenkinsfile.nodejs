@@ -45,7 +45,7 @@ pipeline {
             agent {
                 docker {
                     image 'anchore/syft:latest'
-                    args "-v ${WORKSPACE}:/workspace -w /workspace --network dtrack-network --entrypoint=''"
+                    args "-v ${WORKSPACE}:/workspace -w /workspace --network dtrack-network --entrypoint=/bin/sh"
                 }
             }
             steps {
