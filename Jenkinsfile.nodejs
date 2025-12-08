@@ -40,6 +40,7 @@ pipeline {
             agent {
                 docker {
                     image 'anchore/syft:latest'
+                    reuseNode true
                 }
             }
             steps {
