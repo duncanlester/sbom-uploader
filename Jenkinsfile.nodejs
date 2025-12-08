@@ -38,11 +38,9 @@ pipeline {
         }
         stage('Generate SBOM with Syft') {
             steps {
-                script {
-                    docker.image('anchore/syft:latest').inside('-v $(pwd):/src') {
-                        sh 'syft /src -o cyclonedx-json > /src/sbom.json'
-                    }
-                }
+                sh '''
+                    docker run --rm -v $(pwd):/src anchore/syft:latest syft /src -o cyclonedx-json > sbom.json
+                '''
             }
         }
         stage('Install jq') {
