@@ -36,11 +36,16 @@ pipeline {
                 '''
             }
         }
+        stage('Pull Syft Image') {
+            steps {
+                sh 'docker pull anchore/syft:latest'
+            }
+        }
         stage('Generate SBOM with Syft') {
             agent {
                 docker {
                     image 'anchore/syft:latest'
-                    args '-v $(pwd):/workspace -w /workspace --network dtrack-network'
+                    args "-v ${WORKSPACE}:/workspace -w /workspace --network dtrack-network"
                 }
             }
             steps {
