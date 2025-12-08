@@ -16,14 +16,24 @@ pipeline {
     }
 
     stages {
-        stage('Checkout testcafe-api') {
+        stage('Checkout Source') {
             steps {
-                git url: 'https://github.com/duncanlester/testcafe-api.git', credentialsId: 'duncanlester'
+                git(
+                    url: params.REPO_URL,
+                    branch: params.REPO_REF,
+                    credentialsId: 'duncanlester'
+                )
             }
         }
         stage('Install Dependencies') {
             steps {
-                sh 'npm install --no-audit --no-progress'
+                sh '''
+                    if [ ! -f package.json ]; then
+                        echo "ERROR: package.json not found in $(pwd)"
+                        exit 1
+                    fi
+                    npm install --no-audit --no-progress
+                '''
             }
         }
         stage('Generate SBOM with Syft') {
