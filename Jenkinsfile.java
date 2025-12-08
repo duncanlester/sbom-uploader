@@ -44,18 +44,18 @@ pipeline {
                         sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:2.7.9:makeAggregateBom -Dcyclonedx.outputFormat=json -Dcyclonedx.outputName=sbom'
                     } else if (hasGradle) {
                         writeFile file: 'cyclonedx.init.gradle', text: '''
-initscript {
-    repositories {
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'org.cyclonedx:cyclonedx-gradle-plugin:1.7.5'
-    }
-}
-rootProject {
-    apply plugin: 'org.cyclonedx.bom'
-}
-'''
+                        initscript {
+                            repositories {
+                                mavenCentral()
+                            }
+                            dependencies {
+                                classpath 'org.cyclonedx:cyclonedx-gradle-plugin:1.7.5'
+                            }
+                        }
+                        rootProject {
+                            apply plugin: 'org.cyclonedx.bom'
+                        }
+                        '''
                         sh './gradlew -I cyclonedx.init.gradle cyclonedxBom -Dcyclonedx.outputFormat=json'
                         sh 'cp build/reports/bom.json target/sbom.json'
                     } else {

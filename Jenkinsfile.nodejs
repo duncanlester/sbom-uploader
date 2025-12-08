@@ -3,24 +3,26 @@ pipeline {
 
     parameters {
         string(name: 'REPO_URL', defaultValue: 'https://github.com/duncanlester/testcafe-api.git', description: 'Git repository URL to checkout')
+        string(name: 'REPO_REF', defaultValue: 'main', description: 'Branch or tag to checkout')
     }
 
     environment {
         DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-        DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
-        PROJECT_VERSION = "2.0.0"
+        DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8081"  // For API calls
+        DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"           // For UI links
+        PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "sbom-uploader"
-        REPO_BRANCH = 'master'
+        PROJECT_NAME = "sbom-uploader-nodejs"
     }
 
     stages {
         stage('Checkout Source') {
             steps {
-                echo "Starting git checkout..."
-                echo "${params.REPO_URL} ${env.REPO_BRANCH}"
-                git url: params.REPO_URL, branch: env.REPO_BRANCH, credentialsId: 'duncanlester'
-                echo "Finished git checkout."
+                git(
+                    url: params.REPO_URL,
+                    branch: params.REPO_REF,
+                    credentialsId: 'duncanlester'
+                )
             }
         }
         stage('Install Dependencies') {
@@ -28,27 +30,25 @@ pipeline {
                 sh 'npm install --no-audit --no-progress'
             }
         }
+        stage('Generate SBOM with Syft') {
+            steps {
+                script {
+                    docker.image('anchore/syft:latest').inside('-v $(pwd):/src') {
+                        sh 'syft /src -o cyclonedx-json > /src/sbom.json'
+                    }
+                }
+            }
+        }
         stage('Install jq') {
             steps {
                 sh 'which jq || (apt-get update && apt-get install -y jq)'
-            }
-        }
-        stage('Generate SBOM') {
-            steps {
-                sh """
-                    if ! command -v cyclonedx-npm >/dev/null 2>&1; then
-                      echo "Installing latest @cyclonedx/cyclonedx-npm globally..."
-                      npm install -g @cyclonedx/cyclonedx-npm@3 --no-progress --no-audit
-                    fi
-                    cyclonedx-npm --output-format json --output-file ${SBOM_FILE}
-                """
             }
         }
         stage('Create Dependency Track Project') {
             steps {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
                     sh """
-                        curl -X PUT "$DEPENDENCY_TRACK_URL/api/v1/project" \
+                        curl -X PUT "$DEPENDENCY_TRACK_API_URL/api/v1/project" \
                         -H "Content-Type: application/json" \
                         -H "X-Api-Key: $DT_API_KEY" \
                         -d '{
@@ -66,7 +66,7 @@ pipeline {
                     script {
                         def response = sh(
                             script: """
-                                curl -s -H "X-Api-Key: $DT_API_KEY" "$DEPENDENCY_TRACK_URL/api/v1/project?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
+                                curl -s -H "X-Api-Key: $DT_API_KEY" "$DEPENDENCY_TRACK_API_URL/api/v1/project?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
                             """,
                             returnStdout: true
                         )
@@ -84,7 +84,7 @@ pipeline {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
                     sh 'ls -l sbom.json'
                     sh '''
-                        curl -X POST "$DEPENDENCY_TRACK_URL/api/v1/bom" \
+                        curl -X POST "$DEPENDENCY_TRACK_API_URL/api/v1/bom" \
                         -H "X-Api-Key: $DT_API_KEY" \
                         -F "projectName=${PROJECT_NAME}" \
                         -F "projectVersion=${PROJECT_VERSION}" \
@@ -93,10 +93,27 @@ pipeline {
                 }
             }
         }
-        stage('Show Dependency Track Link') {
-            steps {
-                echo "View your SBOM and vulnerabilities at: ${DEPENDENCY_TRACK_URL}/project/${env.DT_PROJECT_UUID}"
-            }
+    }
+}
+post {
+    success {
+        script {
+            def link = "${DEPENDENCY_TRACK_UI_URL}/project/${env.DT_PROJECT_UUID}"
+            writeFile file: 'link.html', text: """
+            <html>
+            <body>
+                <h2>Dependency Track Project</h2>
+                <a href="${link}" target="_blank" style="font-size: 18px; padding: 10px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">
+                    Open Dependency Track Dashboard
+                </a>
+            </body>
+            </html>
+            """
+            publishHTML([
+                reportDir: '.',
+                reportFiles: 'link.html',
+                reportName: 'Dependency Track Link'
+            ])
         }
     }
 }
