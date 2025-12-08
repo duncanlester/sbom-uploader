@@ -16,13 +16,9 @@ pipeline {
     }
 
     stages {
-        stage('Checkout Source') {
+        stage('Checkout testcafe-api') {
             steps {
-                git(
-                    url: params.REPO_URL,
-                    branch: params.REPO_REF,
-                    credentialsId: 'duncanlester'
-                )
+                git url: 'https://github.com/duncanlester/testcafe-api.git', credentialsId: 'duncanlester'
             }
         }
         stage('Install Dependencies') {
