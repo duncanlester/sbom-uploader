@@ -45,11 +45,12 @@ pipeline {
             agent {
                 docker {
                     image 'anchore/syft:latest'
-                    args "-v ${WORKSPACE}:/workspace -w /workspace --network dtrack-network --entrypoint=/bin/sh"
+                    args "-v ${WORKSPACE}:/workspace -w /workspace --network dtrack-network"
+                    reuseNode true
                 }
             }
             steps {
-                sh 'syft . -o cyclonedx-json > sbom.json'
+                sh '/syft . -o cyclonedx-json > sbom.json'
             }
         }
         stage('Install jq') {
