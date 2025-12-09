@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-        DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"  // For API calls (container port)
+        DEPENDENCY_TRACK_API_URL = "http://localhost:8081"  // For API calls (host port)
         DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"           // For UI links
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
@@ -38,12 +38,21 @@ pipeline {
         }
         stage('Generate SBOM with Syft') {
             steps {
-                sh 'syft . -o cyclonedx-json > sbom.json'
-            }
-        }
-        stage('Install jq') {
-            steps {
-                sh 'which jq || (apt-get update && apt-get install -y jq)'
+                sh '''
+                    # Generate SBOM for entire project
+                    syft ${WORKSPACE} -o cyclonedx-json > sbom.json
+
+                    # Optionally generate separate SBOMs by tech stack
+                    if [ -f "${WORKSPACE}/package.json" ]; then
+                        echo "Generating Node.js SBOM..."
+                        syft ${WORKSPACE} --scope all-layers -o cyclonedx-json > sbom-nodejs.json
+                    fi
+
+                    if [ -f "${WORKSPACE}/pom.xml" ] || [ -f "${WORKSPACE}/build.gradle" ]; then
+                        echo "Generating Java SBOM..."
+                        syft ${WORKSPACE} --scope all-layers -o cyclonedx-json > sbom-java.json
+                    fi
+                '''
             }
         }
         stage('Create Dependency Track Project') {
@@ -80,7 +89,9 @@ pipeline {
                             returnStdout: true
                         )
                         def uuid = sh(
-                            script: "echo '$response' | jq -r '.[0].uuid'",
+                            script: """
+                                echo '$response' | python3 -c "import sys, json; data = json.load(sys.stdin); print(data[0]['uuid'] if data else '')"
+                            """,
                             returnStdout: true
                         ).trim()
                         env.DT_PROJECT_UUID = uuid
@@ -93,7 +104,11 @@ pipeline {
                 withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
                     sh 'ls -l sbom.json'
                     sh '''
-                        curl -X POST "$DEPENDENCY_TRACK_API_URL/api/v1/bom" \
+                        echo "Checking API server connectivity..."
+                        curl -v http://localhost:8081/api/v1/version || echo "API server not responding"
+
+                        echo "Uploading SBOM..."
+                        curl -v -X POST "$DEPENDENCY_TRACK_API_URL/api/v1/bom" \
                         -H "X-Api-Key: $DT_API_KEY" \
                         -F "projectName=${PROJECT_NAME}" \
                         -F "projectVersion=${PROJECT_VERSION}" \
