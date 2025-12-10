@@ -87,7 +87,8 @@ pipeline {
                         -H "X-Api-Key: $DT_API_KEY" \
                         -F "projectName=${PROJECT_NAME}" \
                         -F "projectVersion=${PROJECT_VERSION}" \
-                        -F "bom=@sbom.json"
+                        -F "bom=@sbom.json" \
+                        -F "classifier=application"
                     '''
                 }
             }
