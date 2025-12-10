@@ -10,9 +10,9 @@ pipeline {
         DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
         DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"  // For API calls (container port)
         DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"           // For UI links
-        PROJECT_VERSION = "1.0.0"
+        PROJECT_VERSION = "3.0.0"
         SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "sbom-uploader-nodejs"
+        PROJECT_NAME = "TEST"
     }
 
     stages {
