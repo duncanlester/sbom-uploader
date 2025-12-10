@@ -94,26 +94,26 @@ pipeline {
             }
         }
     }
-}
-post {
-    success {
-        script {
-            def link = "${DEPENDENCY_TRACK_UI_URL}/project/${env.DT_PROJECT_UUID}"
-            writeFile file: 'link.html', text: """
-            <html>
-            <body>
-                <h2>Dependency Track Project</h2>
-                <a href="${link}" target="_blank" style="font-size: 18px; padding: 10px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">
-                    Open Dependency Track Dashboard
-                </a>
-            </body>
-            </html>
-            """
-            publishHTML([
-                reportDir: '.',
-                reportFiles: 'link.html',
-                reportName: 'Dependency Track Link'
-            ])
+    post {
+        success {
+            script {
+                def link = "${DEPENDENCY_TRACK_UI_URL}/project/${env.DT_PROJECT_UUID}"
+                writeFile file: 'link.html', text: """
+                <html>
+                <body>
+                    <h2>Dependency Track Project</h2>
+                    <a href="${link}" target="_blank" style="font-size: 18px; padding: 10px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">
+                        Open Dependency Track Dashboard
+                    </a>
+                </body>
+                </html>
+                """
+                publishHTML([
+                    reportDir: '.',
+                    reportFiles: 'link.html',
+                    reportName: 'Dependency Track Link'
+                ])
+            }
         }
     }
 }
