@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-        DEPENDENCY_TRACK_API_URL = "http://localhost:8081"  // For API calls (host port)
+        DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"  // For API calls (container port)
         DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"           // For UI links
         PROJECT_VERSION = "1.0.0"
         SBOM_FILE = 'sbom.json'
@@ -27,21 +27,7 @@ pipeline {
         }
         stage('Generate SBOM with Syft') {
             steps {
-                sh '''
-                    # Generate SBOM for entire project
-                    syft ${WORKSPACE} -o cyclonedx-json > sbom.json
-
-                    # Optionally generate separate SBOMs by tech stack
-                    if [ -f "${WORKSPACE}/package.json" ]; then
-                        echo "Generating Node.js SBOM..."
-                        syft ${WORKSPACE} --scope all-layers -o cyclonedx-json > sbom-nodejs.json
-                    fi
-
-                    if [ -f "${WORKSPACE}/pom.xml" ] || [ -f "${WORKSPACE}/build.gradle" ]; then
-                        echo "Generating Java SBOM..."
-                        syft ${WORKSPACE} --scope all-layers -o cyclonedx-json > sbom-java.json
-                    fi
-                '''
+                sh 'syft ${WORKSPACE} -o cyclonedx-json > sbom.json'
             }
         }
         stage('Create Dependency Track Project') {
