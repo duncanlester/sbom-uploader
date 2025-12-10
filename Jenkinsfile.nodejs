@@ -25,17 +25,6 @@ pipeline {
                 )
             }
         }
-        stage('Install Dependencies') {
-            steps {
-                sh '''
-                    if [ ! -f package.json ]; then
-                        echo "ERROR: package.json not found in $(pwd)"
-                        exit 1
-                    fi
-                    npm install --no-audit --no-progress
-                '''
-            }
-        }
         stage('Generate SBOM with Syft') {
             steps {
                 sh '''
