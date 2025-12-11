@@ -8,11 +8,10 @@ pipeline {
 
     environment {
         DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-        DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"  // For API calls (container port)
-        DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"           // For UI links
-        PROJECT_VERSION = "3.0.0"
-        SBOM_FILE = 'sbom.json'
-        PROJECT_NAME = "TEST"
+        DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"
+        DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"
+        PROJECT_NAME = "TestCafe"
+        PROJECT_VERSION = "1.0.0"
     }
 
     stages {
@@ -25,95 +24,41 @@ pipeline {
                 )
             }
         }
+
         stage('Generate SBOM with Syft') {
             steps {
-                sh 'syft ${WORKSPACE} -o cyclonedx-json > sbom.json'
-            }
-        }
-        stage('Create Dependency Track Project') {
-            steps {
-                withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
-                    sh '''
-                        for i in {1..10}; do
-                            if curl -f -X PUT "$DEPENDENCY_TRACK_API_URL/api/v1/project" \
-                                -H "Content-Type: application/json" \
-                                -H "X-Api-Key: $DT_API_KEY" \
-                                -d "{
-                                    \"name\": \"${PROJECT_NAME}\",
-                                    \"version\": \"${PROJECT_VERSION}\",
-                                    \"active\": true
-                                }"; then
-                                echo "Project created successfully"
-                                break
-                            fi
-                            echo "Attempt $i failed, retrying in 5 seconds..."
-                            sleep 5
-                        done
-                    '''
-                }
-            }
-        }
-        stage('Get Dependency Track Project UUID') {
-            steps {
-                withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
-                    script {
-                        def response = sh(
-                            script: """
-                                curl -s -H "X-Api-Key: $DT_API_KEY" "$DEPENDENCY_TRACK_API_URL/api/v1/project?name=${PROJECT_NAME}&version=${PROJECT_VERSION}"
-                            """,
-                            returnStdout: true
-                        )
-                        def uuid = sh(
-                            script: """
-                                echo '$response' | python3 -c "import sys, json; data = json.load(sys.stdin); print(data[0]['uuid'] if data else '')"
-                            """,
-                            returnStdout: true
-                        ).trim()
-                        env.DT_PROJECT_UUID = uuid
-                    }
-                }
-            }
-        }
-        stage('Upload SBOM to Dependency Track') {
-            steps {
-                withEnv(["DT_API_KEY=${DEPENDENCY_TRACK_API_KEY}"]) {
-                    sh 'ls -l sbom.json'
-                    sh '''
-                        echo "Checking API server connectivity..."
-                        curl -v http://dtrack-apiserver:8080/api/v1/version || echo "API server not responding"
+                sh '''
+                    # Install dependencies to generate package-lock.json
+                    npm install --legacy-peer-deps --loglevel=error || true
 
+                    # Generate SBOM with CycloneDX 1.4 JSON format
+                    /usr/local/bin/syft . -o cyclonedx-json@1.4 > sbom.json
+                '''
+            }
+        }
+
+        stage('Upload SBOM to Dependency-Track') {
+            steps {
+                withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
+                    sh '''
                         echo "Uploading SBOM..."
-                        curl -v -X POST "$DEPENDENCY_TRACK_API_URL/api/v1/bom" \
+                        curl -s -X POST "$DEPENDENCY_TRACK_API_URL/api/v1/bom" \
                         -H "X-Api-Key: $DT_API_KEY" \
                         -F "projectName=${PROJECT_NAME}" \
                         -F "projectVersion=${PROJECT_VERSION}" \
-                        -F "bom=@sbom.json" \
-                        -F "classifier=application"
+                        -F "autoCreate=true" \
+                        -F "bom=@sbom.json"
+
                     '''
                 }
             }
         }
     }
+
     post {
         success {
-            script {
-                def link = "${DEPENDENCY_TRACK_UI_URL}/project/${env.DT_PROJECT_UUID}"
-                writeFile file: 'link.html', text: """
-                <html>
-                <body>
-                    <h2>Dependency Track Project</h2>
-                    <a href="${link}" target="_blank" style="font-size: 18px; padding: 10px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">
-                        Open Dependency Track Dashboard
-                    </a>
-                </body>
-                </html>
-                """
-                publishHTML([
-                    reportDir: '.',
-                    reportFiles: 'link.html',
-                    reportName: 'Dependency Track Link'
-                ])
-            }
+            echo "✓ SBOM uploaded successfully"
+            echo "✓ Access dashboard at: ${DEPENDENCY_TRACK_UI_URL}/project"
         }
     }
 }
