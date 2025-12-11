@@ -11,7 +11,7 @@ pipeline {
         DEPENDENCY_TRACK_API_URL = "http://dtrack-apiserver:8080"
         DEPENDENCY_TRACK_UI_URL = "http://localhost:8082"
         PROJECT_NAME = "TestCafe"
-        PROJECT_VERSION = "1.0.0"
+        PROJECT_VERSION = "1.0.3"
     }
 
     stages {
