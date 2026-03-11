@@ -1,0 +1,40 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(name: 'TARGET_JENKINS_URL', defaultValue: 'https://jenkins.example.com', description: 'Jenkins base URL to query with CLI')
+    string(name: 'DT_PROJECT_NAME', defaultValue: 'jenkins-prod', description: 'Dependency-Track project name (for SBOM metadata)')
+  }
+
+  environment {
+    // Store as "username:apitoken" in Jenkins credentials (Secret text is simplest).
+    JENKINS_AUTH = credentials('jenkins-cli-user-token')
+  }
+
+  stages {
+    stage('Generate plugins.txt via Jenkins CLI') {
+      steps {
+        sh '''
+          set -euo pipefail
+          curl -fsSL "$TARGET_JENKINS_URL/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
+          java -jar jenkins-cli.jar -s "$TARGET_JENKINS_URL" -auth "$JENKINS_AUTH" list-plugins > plugins.txt
+          echo "Generated plugins.txt ($(wc -l < plugins.txt) lines)"
+        '''
+        archiveArtifacts artifacts: 'plugins.txt', fingerprint: true
+      }
+    }
+
+    stage('Generate CycloneDX SBOM') {
+      steps {
+        sh '''
+          set -euo pipefail
+          python3 --version
+          python3 plugins_txt_to_cyclonedx.py plugins.txt jenkins-plugins.cdx.json "$DT_PROJECT_NAME" "$BUILD_TAG"
+        '''
+        archiveArtifacts artifacts: 'jenkins-plugins.cdx.json', fingerprint: true
+      }
+    }
+
+    // Your existing stage to upload to Dependency-Track goes here.
+  }
+}
