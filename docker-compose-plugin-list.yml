@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins-sbom
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./plugins.txt:/usr/share/jenkins/ref/plugins.txt
+    entrypoint: >
+      /bin/bash -c "
+      jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt &&
+      sleep infinity
+      "
+volumes:
+  jenkins_home:
