@@ -1,0 +1,111 @@
+@Library('sbom-uploader@ISR-24671-create-a-poc-using-dependency-track-to-investigate-sbom-and-vulnerability-management') _
+
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'REPO_URL', defaultValue: 'https://github.com/apache/nifi.git', description: 'Git repository URL to checkout')
+        string(name: 'REPO_BRANCH', defaultValue: 'main', description: 'Git branch/tag to checkout')
+        choice(name: 'REF_TYPE', choices: ['branch', 'tag'], description: 'Select whether REPO_BRANCH is a branch or tag')
+        booleanParam(name: 'FORCE_BUILD', defaultValue: false, description: 'Force build regardless of repository changes')
+    }
+    environment {
+        DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+        DEPENDENCY_TRACK_API_URL = "http://w-work-19.rdmz.isridev.com:8081"
+        DEPENDENCY_TRACK_UI_URL = "http://w-work-19.rdmz.isridev.com:8082"
+        SBOM_FILE = 'sbom.json'
+        PROJECT_NAME = "Nifi"
+        PROJECT_VERSION = "${params.REPO_BRANCH}"
+    }
+
+    stages {
+        stage ("repo commit check"){
+            steps{
+                script {
+                    if (params.FORCE_BUILD) {
+                        echo "Force build enabled - skipping commit check"
+                        env.SKIP_BUILD = 'false'
+                        return
+                    }
+
+                    sh 'echo "Checking for changes in the repository..."'
+
+                    def REPO = git url: "${params.REPO_URL}",
+                          branch: "${params.REPO_BRANCH}",
+                          credentialsId: 'irad-launchpad-bb'
+                    // First run - no previous commit, always continue
+                    if(!REPO.GIT_PREVIOUS_COMMIT) {
+                        echo "No previous commit - first run, continuing..."
+                        env.SKIP_BUILD = 'false'
+                        return
+                    }
+                    // Check if main repo has changes
+                    if(REPO.GIT_COMMIT == REPO.GIT_PREVIOUS_COMMIT){
+                        echo "No changes in main repository"
+                        env.SKIP_BUILD = 'true'
+                        return
+                    }
+                    echo "Changes detected - continuing build"
+                    env.SKIP_BUILD = 'false'
+                }
+            }
+        }
+        stage('Checkout Source') {
+            steps {
+                script {
+                    echo "Starting git checkout..."
+                    echo "Repository: ${params.REPO_URL}"
+                    echo "Reference: ${params.REPO_BRANCH} (${params.REF_TYPE})"
+                    def gitRef = params.REF_TYPE == 'tag' ? "refs/tags/${params.REPO_BRANCH}" : "${params.REPO_BRANCH}"
+
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: gitRef]],
+                        userRemoteConfigs: [[
+                            url: params.REPO_URL
+                        ]],
+                        extensions: [[$class: 'CloneOption', noTags: false, shallow: false]]
+                    ])
+
+                    echo "Finished git checkout."
+                }
+            }
+        }
+        stage('Generate SBOM') {
+            steps {
+                script {
+                    // Pin to specific version for stability
+                    cdxgenRepo(env.SBOM_FILE, true, '', '11', 'v12')
+
+                }
+            }
+        }
+        stage('Upload SBOM to Dependency-Track') {
+            steps {
+                script {
+                    uploadSBOM(sbomFile: env.SBOM_FILE, projectName: env.PROJECT_NAME, projectVersion: env.PROJECT_VERSION )
+                }
+            }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+        success {
+            echo 'Success'
+        }
+        failure {
+            echo 'Failure'
+            script{
+                currentBuild.result = 'FAILURE'
+            }
+        }
+        unstable {
+            echo 'Unstable'
+        }
+        aborted {
+            echo 'Aborted'
+        }
+    }
+}
