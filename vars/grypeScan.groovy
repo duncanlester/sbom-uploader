@@ -4,7 +4,6 @@ def call(String imageName, String outputFile, List grypeFlags = []) {
 
     sh """
         set -e
-
         echo "Pulling image to ensure it exists locally..."
         docker pull ${imageName} || true
 
