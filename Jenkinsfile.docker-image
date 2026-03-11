@@ -1,0 +1,55 @@
+@Library('sbom-uploader@ISR-24671-create-a-poc-using-dependency-track-to-investigate-sbom-and-vulnerability-management') _
+
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'DOCKER_IMAGE', defaultValue: 'testcafe/testcafe:latest', description: 'Docker image to scan')
+    }
+    environment {
+        DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+        DEPENDENCY_TRACK_API_URL = "http://w-work-19.rdmz.isridev.com:8081"
+        DEPENDENCY_TRACK_UI_URL = "http://w-work-19.rdmz.isridev.com:8082"
+        SBOM_FILE = 'sbom.json'
+        PROJECT_VERSION = "${params.DOCKER_IMAGE.split(':')[1]}"
+        PROJECT_NAME = "${params.DOCKER_IMAGE}"
+    }
+    stages {
+        stage('Generate SBOM') {
+            steps {
+                script {
+                    //syft is purpose built for generating SBOMs from Docker images
+                    echo "Generating SBOM for TestCafe docker image..."
+                    syftImage('testcafe/testcafe:latest', env.SBOM_FILE)
+                }
+            }
+        }
+        stage('Upload SBOM to Dependency-Track') {
+            steps {
+                script {
+                    uploadSBOM(sbomFile: env.SBOM_FILE, projectName: env.PROJECT_NAME, projectVersion: env.PROJECT_VERSION )
+                }
+            }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+        success {
+            echo 'Success'
+        }
+        failure {
+            echo 'Failure'
+            script{
+                currentBuild.result = 'FAILURE'
+            }
+        }
+        unstable {
+            echo 'Unstable'
+        }
+        aborted {
+            echo 'Aborted'
+        }
+    }
+}
