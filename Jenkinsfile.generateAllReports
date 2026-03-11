@@ -1,0 +1,75 @@
+@Library('sbom-uploader@ISR-24671-create-a-poc-using-dependency-track-to-investigate-sbom-and-vulnerability-management') _
+
+pipeline {
+    agent any
+
+    environment {
+        DT_API_KEY = credentials('dependency-track-api-key')
+        DT_URL = 'http://w-work-19.rdmz.isridev.com:8081'
+    }
+
+    stages {
+        stage('Get All Projects') {
+            steps {
+                script {
+                    sh "curl -s -X GET ${DT_URL}/api/v1/project -H 'X-Api-Key: ${DT_API_KEY}' -o all-projects.json"
+                }
+            }
+        }
+        stage('Generate All Reports') {
+            steps {
+                script {
+                    def projects = readJSON file: 'all-projects.json'
+
+                    echo "Found ${projects.size()} projects"
+
+                    projects.each { project ->
+                        def projectName = project.name
+                        def projectVersion = project.version ?: 'latest'
+
+                        echo "Generating report for: ${projectName} ${projectVersion}"
+
+                        try {
+                            // Generate report using shared library
+                            exportDTReport(projectName, projectVersion)
+
+                            // Rename PDF with project name
+                            def safeProjectName = projectName.replaceAll('[^a-zA-Z0-9-_]', '_')
+                            def safeVersion = projectVersion.replaceAll('[^a-zA-Z0-9-_.]', '_')
+                            def outputFile = "${safeProjectName}-${safeVersion}-vulnerability-report.pdf"
+
+                            sh "mv vulnerability-report.pdf ${outputFile}"
+
+                            // Archive individual report
+                            archiveArtifacts artifacts: outputFile, allowEmptyArchive: true
+
+                            echo "✓ Generated: ${outputFile}"
+                        } catch (Exception e) {
+                            echo "✗ Failed to generate report for ${projectName}: ${e.message}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+        success {
+            echo 'Success'
+        }
+        failure {
+            echo 'Failure'
+            script{
+                currentBuild.result = 'FAILURE'
+            }
+        }
+        unstable {
+            echo 'Unstable'
+        }
+        aborted {
+            echo 'Aborted'
+        }
+    }
+}
