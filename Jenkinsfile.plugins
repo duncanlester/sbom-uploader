@@ -192,11 +192,25 @@ pipeline {
       }
     }
   }
-
   post {
     always {
-      // Remove the installer container if it is still running/stopped
-      sh 'docker compose --profile plugins down --remove-orphans 2>/dev/null || true'
+        sh 'docker compose --profile plugins down --remove-orphans 2>/dev/null || true'
+        deleteDir()
+    }
+    success {
+        echo 'Success'
+    }
+    failure {
+        echo 'Failure'
+        script{
+            currentBuild.result = 'FAILURE'
+        }
+    }
+    unstable {
+        echo 'Unstable'
+    }
+    aborted {
+        echo 'Aborted'
     }
   }
 }
