@@ -2,39 +2,202 @@ pipeline {
   agent any
 
   parameters {
-    string(name: 'TARGET_JENKINS_URL', defaultValue: 'https://jenkins.example.com', description: 'Jenkins base URL to query with CLI')
-    string(name: 'DT_PROJECT_NAME', defaultValue: 'jenkins-prod', description: 'Dependency-Track project name (for SBOM metadata)')
+    string(
+      name: 'TARGET_JENKINS_URL',
+      defaultValue: 'https://jenkins.example.com',
+      description: 'Jenkins base URL to query with CLI for the installed plugin list'
+    )
+    string(
+      name: 'DT_API_URL',
+      defaultValue: '',
+      description: 'Dependency-Track API URL. Leave blank to use the DEPENDENCY_TRACK_API_URL environment variable.'
+    )
+    string(
+      name: 'DT_API_KEY_CRED_ID',
+      defaultValue: 'dependency-track-api-key',
+      description: 'Jenkins credential ID (Secret text) holding the Dependency-Track API key'
+    )
   }
 
   environment {
-    // Store as "username:apitoken" in Jenkins credentials (Secret text is simplest).
+    // Jenkins credential stored as "username:apitoken" Secret text
     JENKINS_AUTH = credentials('jenkins-cli-user-token')
   }
 
   stages {
-    stage('Generate plugins.txt via Jenkins CLI') {
+
+    // -----------------------------------------------------------------------
+    // 1. Get the exact plugin versions currently installed on the live Jenkins
+    // -----------------------------------------------------------------------
+    stage('List installed plugins') {
       steps {
         sh '''
           set -euo pipefail
-          curl -fsSL "$TARGET_JENKINS_URL/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
-          java -jar jenkins-cli.jar -s "$TARGET_JENKINS_URL" -auth "$JENKINS_AUTH" list-plugins > plugins.txt
-          echo "Generated plugins.txt ($(wc -l < plugins.txt) lines)"
+          curl -fsSL "${TARGET_JENKINS_URL}/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
+
+          # Produces lines like:  git 5.2.1 (pinned)
+          java -jar jenkins-cli.jar \
+            -s "${TARGET_JENKINS_URL}" \
+            -auth "${JENKINS_AUTH}" \
+            list-plugins > plugins-list.txt
+
+          echo "Found $(wc -l < plugins-list.txt | tr -d ' ') installed plugins"
         '''
-        archiveArtifacts artifacts: 'plugins.txt', fingerprint: true
+        archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
     }
 
-    stage('Generate CycloneDX SBOM') {
+    // -----------------------------------------------------------------------
+    // 2. Convert the list-plugins format to the jenkins-plugin-cli format and
+    //    install those exact versions via Docker so we get the real .jpi files
+    // -----------------------------------------------------------------------
+    stage('Install plugins and expose .jpi files') {
       steps {
         sh '''
           set -euo pipefail
-          python3 --version
-          python3 plugins_txt_to_cyclonedx.py plugins.txt jenkins-plugins.cdx.json "$DT_PROJECT_NAME" "$BUILD_TAG"
+
+          # Convert "git 5.2.1 (pinned)" -> "git:5.2.1"
+          awk 'NF>=2 && !/^#/ {print $1 ":" $2}' plugins-list.txt > plugins-install.txt
+          echo "Converted to jenkins-plugin-cli format ($(wc -l < plugins-install.txt | tr -d ' ') entries)"
+
+          # Clean previous run output; the compose file bind-mounts this dir
+          rm -rf plugins-output && mkdir -p plugins-output
+
+          docker compose --profile plugins up \
+            --exit-code-from jenkins-plugin-installer \
+            --abort-on-container-exit
+
+          PLUGIN_COUNT=$(ls plugins-output/*.jpi plugins-output/*.hpi 2>/dev/null | wc -l | tr -d ' ')
+          echo "Installed ${PLUGIN_COUNT} plugin files into plugins-output/"
         '''
-        archiveArtifacts artifacts: 'jenkins-plugins.cdx.json', fingerprint: true
       }
     }
 
-    // Your existing stage to upload to Dependency-Track goes here.
+    // -----------------------------------------------------------------------
+    // 3. Scan every installed plugin with Syft to produce per-plugin CycloneDX
+    //    SBOMs.  Syft reads real Maven metadata from inside each .jpi archive,
+    //    giving proper pkg:maven PURLs that Dependency-Track can match against
+    //    NVD / OSV — including vulnerabilities in embedded libraries.
+    // -----------------------------------------------------------------------
+    stage('Generate per-plugin SBOMs with Syft') {
+      steps {
+        sh '''
+          set -euo pipefail
+          mkdir -p sboms
+
+          for plugin_file in plugins-output/*.jpi plugins-output/*.hpi; do
+            [ -f "$plugin_file" ] || continue
+
+            # Strip path and extension to get the plugin ID
+            plugin_id=$(basename "${plugin_file%.*}")
+
+            echo "Scanning ${plugin_id}..."
+            docker run --rm \
+              -v "$(pwd)/plugins-output:/plugins:ro" \
+              anchore/syft:latest \
+              "file:/plugins/$(basename "$plugin_file")" \
+              -o cyclonedx-json \
+              -q \
+              --file "/dev/stdout" > "sboms/${plugin_id}.json"
+          done
+
+          echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs"
+        '''
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. Enrich each SBOM with inter-plugin dependency edges from the Jenkins
+    //    Update Center.  Syft already captured the embedded-JAR tree inside
+    //    each .jpi; this stage adds the plugin → plugin edges on top so that
+    //    Dependency-Track shows the full graph:
+    //
+    //      plugin-git
+    //        ├── git-client  (inter-plugin, from Update Center)
+    //        ├── scm-api     (inter-plugin, from Update Center)
+    //        └── jackson-databind-2.14.x  (embedded JAR, from Syft)
+    // -----------------------------------------------------------------------
+    stage('Enrich SBOMs with inter-plugin dependency graph') {
+      steps {
+        sh '''
+          set -euo pipefail
+
+          # Strip the JSONP callback wrapper Jenkins adds around update-center.json
+          curl -fsSL https://updates.jenkins.io/current/update-center.json \
+            | sed '1d;$d' > update-center.json
+
+          echo "Fetched Update Center metadata"
+
+          ENRICHED=0
+          for sbom_file in sboms/*.json; do
+            [ -f "$sbom_file" ] || continue
+            plugin_id=$(basename "${sbom_file%.*}")
+            python3 resources/scripts/merge_uc_dependencies.py \
+              --sbom    "$sbom_file" \
+              --uc      update-center.json \
+              --plugins plugins-list.txt \
+              --plugin  "$plugin_id"
+            ENRICHED=$((ENRICHED + 1))
+          done
+
+          echo "Enriched ${ENRICHED} SBOMs with inter-plugin dependency edges"
+        '''
+        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Upload each plugin's SBOM to Dependency-Track as its own project.
+    //
+    //    This gives you per-plugin granularity in DT:
+    //      • Each plugin is a separate project (jenkins-plugin-<id>)
+    //      • Findings, policies, and suppression rules are scoped per plugin
+    //      • The "Findings" view immediately shows you which plugin is affected
+    //
+    //    Plugin versions are read from the original plugins-list.txt so the DT
+    //    project version matches the installed version exactly.
+    // -----------------------------------------------------------------------
+    stage('Upload enriched SBOMs to Dependency-Track') {
+      steps {
+        script {
+          def apiUrl = params.DT_API_URL?.trim() ?: env.DEPENDENCY_TRACK_API_URL
+
+          // Build a map of plugin-id -> version from the list-plugins output
+          def pluginVersions = [:]
+          readFile('plugins-list.txt').readLines().each { line ->
+            def parts = line.trim().split(/\s+/)
+            if (parts.size() >= 2) {
+              pluginVersions[parts[0]] = parts[1]
+            }
+          }
+
+          def sbomFiles = findFiles(glob: 'sboms/*.json')
+          echo "Uploading ${sbomFiles.size()} SBOMs to Dependency-Track..."
+
+          sbomFiles.each { sbom ->
+            def pluginId = sbom.name.replaceAll(/\.json$/, '')
+            def version  = pluginVersions.get(pluginId, 'unknown')
+
+            echo "  → jenkins-plugin-${pluginId} @ ${version}"
+
+            uploadSBOM(
+              sbomFile:       sbom.path,
+              projectName:    "jenkins-plugin-${pluginId}",
+              projectVersion: version,
+              apiUrl:         apiUrl,
+              apiKeyCredId:   params.DT_API_KEY_CRED_ID,
+            )
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      // Remove the installer container if it is still running/stopped
+      sh 'docker compose --profile plugins down --remove-orphans 2>/dev/null || true'
+    }
   }
 }
+
