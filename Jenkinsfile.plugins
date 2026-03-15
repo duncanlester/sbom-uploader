@@ -4,24 +4,16 @@ pipeline {
   parameters {
     string(
       name: 'TARGET_JENKINS_URL',
-      defaultValue: 'https://jenkins.example.com',
+      defaultValue: 'http://http://localhost:8080/',
       description: 'Jenkins base URL to query with CLI for the installed plugin list'
     )
-    string(
-      name: 'DT_API_URL',
-      defaultValue: '',
-      description: 'Dependency-Track API URL. Leave blank to use the DEPENDENCY_TRACK_API_URL environment variable.'
-    )
-    string(
-      name: 'DT_API_KEY_CRED_ID',
-      defaultValue: 'dependency-track-api-key',
-      description: 'Jenkins credential ID (Secret text) holding the Dependency-Track API key'
-    )
   }
-
   environment {
-    // Jenkins credential stored as "username:apitoken" Secret text
-    JENKINS_AUTH = credentials('jenkins-cli-user-token')
+    DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+    DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
+    PROJECT_VERSION = "1.0.0"
+    SBOM_FILE = 'target/sbom.json'
+    PROJECT_NAME = "jenkins-plugins"
   }
 
   stages {
