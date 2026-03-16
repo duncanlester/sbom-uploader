@@ -122,12 +122,12 @@ def main(argv: list[str]) -> int:
         correct_purl = plugin_purl(args.plugin, installed_ver)
         meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
         meta_component.update({
+            "type":    "library",
             "purl":    correct_purl,
             "name":    args.plugin,
             "version": installed_ver,
             "cpe":     plugin_cpe(args.plugin, installed_ver),
         })
-        meta_component.setdefault("type", "library")
         if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
             meta_component["bom-ref"] = correct_purl
         print(
@@ -165,11 +165,11 @@ def main(argv: list[str]) -> int:
     # ------------------------------------------------------------------
     correct_purl = plugin_purl(args.plugin, installed_ver)
     meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
+    meta_component["type"]    = "library"
     meta_component["purl"]    = correct_purl
     meta_component["name"]    = args.plugin
     meta_component["version"] = installed_ver
     meta_component["cpe"]     = plugin_cpe(args.plugin, installed_ver)
-    meta_component.setdefault("type", "library")
     # Keep bom-ref stable: if it was already a PURL-like string, update it too
     if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
         meta_component["bom-ref"] = correct_purl
