@@ -39,35 +39,27 @@ pipeline {
     }
 
     // -----------------------------------------------------------------------
-    // 2. Convert the list-plugins format to the jenkins-plugin-cli format and
-    //    install those exact versions via Docker so we get the real .jpi files
+    // 2. Copy the already-installed .jpi / .hpi files from the live Jenkins
+    //    master container into a named Docker volume so Syft can read them.
+    //    No re-download required — avoids 404s for archived / removed plugins.
     // -----------------------------------------------------------------------
-    stage('Install plugins and expose .jpi files') {
+    stage('Collect installed .jpi files') {
       steps {
         sh '''
           set -euo pipefail
 
-          # Convert "git 5.2.1 (pinned)" -> "git:5.2.1"
-          awk 'NF>=2 && !/^#/ {print $1 ":" $2}' plugins-list.txt > plugins-install.txt
-          echo "Converted to jenkins-plugin-cli format ($(wc -l < plugins-install.txt | tr -d ' ') entries)"
-
-          # Use a named volume for output so host-path resolution is not needed.
-          # Jenkins workspace lives inside the Jenkins container; bind-mounting
-          # $(pwd) passes a container path to the host Docker daemon which
-          # creates a directory instead of mounting a file.
           docker volume rm jenkins-plugin-output 2>/dev/null || true
           docker volume create jenkins-plugin-output
 
-          # Pipe plugins-install.txt via stdin to avoid bind-mounting the file.
-          docker run --rm -i \
-            -v jenkins-plugin-output:/var/jenkins_home/plugins \
-            jenkins/jenkins:lts \
-            /bin/bash -c 'cat > /tmp/plugins-install.txt && jenkins-plugin-cli --plugin-file /tmp/plugins-install.txt --verbose' \
-            < plugins-install.txt
-
-          PLUGIN_COUNT=$(docker run --rm -v jenkins-plugin-output:/plugins alpine \
-            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null | wc -l')
-          echo "Installed ${PLUGIN_COUNT} plugin files into jenkins-plugin-output volume"
+          # Mount both the jenkins-master volumes (read-only) and our output
+          # volume, then copy every .jpi / .hpi across.
+          docker run --rm \
+            --volumes-from jenkins-master:ro \
+            -v jenkins-plugin-output:/dest \
+            alpine \
+            sh -c 'cp /var/jenkins_home/plugins/*.jpi /dest/ 2>/dev/null; \
+                   cp /var/jenkins_home/plugins/*.hpi /dest/ 2>/dev/null; \
+                   echo "Copied $(ls /dest | wc -l) plugin files"'
         '''
       }
     }
