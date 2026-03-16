@@ -12,7 +12,7 @@ pipeline {
     DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
     DEPENDENCY_TRACK_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
     PROJECT_VERSION = "1.0.0"
-    SBOM_FILE = 'target/sbom.json'
+    SBOM_FILE = 'sbom.json'
     PROJECT_NAME = "jenkins-plugins"
   }
 
@@ -175,15 +175,8 @@ pipeline {
 
             echo "  → jenkins-plugin-${pluginId} @ ${version}"
             script {
-                    uploadSBOM(sbomFile: env.SBOM_FILE, projectName: env.PROJECT_NAME, projectVersion: env.PROJECT_VERSION )
+                    uploadSBOM(sbomFile: env.SBOM_FILE + "-${pluginId}", projectName: env.PROJECT_NAME + "-${pluginId}",, projectVersion: env.PROJECT_VERSION )
                 }
-            uploadSBOM(
-              sbomFile:       sbom.path,
-              projectName:    "jenkins-plugin-${pluginId}",
-              projectVersion: version,
-              apiUrl:         apiUrl,
-              apiKeyCredId:   params.DT_API_KEY_CRED_ID,
-            )
           }
         }
       }
