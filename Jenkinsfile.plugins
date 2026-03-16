@@ -70,7 +70,7 @@ pipeline {
           SKIPPED=0
 
           while IFS= read -r line; do
-            plugin_id=$(echo "$line" | awk "{print \$1}")
+            plugin_id="${line%% *}"
             [ -n "$plugin_id" ] || continue
 
             # Extract the version token: last non-parenthetical field
