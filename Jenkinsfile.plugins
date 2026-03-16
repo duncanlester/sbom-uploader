@@ -1,3 +1,5 @@
+@Library('sbom-uploader') _
+
 pipeline {
   agent any
 
