@@ -18,9 +18,13 @@ def call(String pluginFile, String outputFile, String cdxgenVersion = 'latest') 
     def outputDir  = outputFile.substring(0, outputFile.lastIndexOf('/'))
     def outputName = outputFile.substring(outputFile.lastIndexOf('/') + 1)
 
+    def userId  = sh(script: 'id -u', returnStdout: true).trim()
+    def groupId = sh(script: 'id -g', returnStdout: true).trim()
+
     sh """
         mkdir -p "${outputDir}"
-        docker run --rm \
+        docker run --rm \\
+            -u ${userId}:${groupId} \\
             -v "${pluginDir}":/plugins:ro \
             -v "${outputDir}":/sboms \
             ghcr.io/cyclonedx/cdxgen:${cdxgenVersion} \

@@ -90,12 +90,16 @@ pipeline {
             returnStdout: true
           ).trim().split('\n')
 
+          def userId  = sh(script: 'id -u', returnStdout: true).trim()
+          def groupId = sh(script: 'id -g', returnStdout: true).trim()
+
           pluginNames.each { pluginName ->
             def pluginId = pluginName.replaceAll('\\.[^.]+$', '')
             echo "Scanning ${pluginId}..."
-            // Mount the named volume at /plugins and the sboms dir at /sboms
+            // -u ensures cdxgen writes as the Jenkins user, not container root
             sh """
-              docker run --rm \
+              docker run --rm \\
+                -u ${userId}:${groupId} \\
                 -v jenkins-plugin-output:/plugins:ro \
                 -v "${env.WORKSPACE}/sboms":/sboms \
                 ghcr.io/cyclonedx/cdxgen:latest \
