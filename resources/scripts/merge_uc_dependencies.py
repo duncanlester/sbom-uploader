@@ -61,34 +61,38 @@ def load_installed_versions(plugins_list_path: str) -> dict[str, str]:
     return versions
 
 
-def plugin_purl(plugin_id: str, version: str) -> str:
-    # org.jenkins-ci.plugins is the groupId for the vast majority of community
-    # plugins.  Edge cases (e.g. workflow-*, blueocean) would need overrides,
-    # but Syft already handles those correctly for the embedded-JAR components.
-    return f"pkg:maven/org.jenkins-ci.plugins/{plugin_id}@{version}"
+def get_group_id(uc: dict, plugin_id: str) -> str:
+    """Return the Maven groupId for a plugin from the Update Center JSON.
+
+    The UC JSON includes a 'groupId' field for every listed plugin, e.g.:
+      workflow-aggregator -> org.jenkins-ci.plugins.workflow
+      blueocean           -> io.jenkins.blueocean
+      kubernetes          -> org.csanchez.jenkins.plugins
+    Falling back to 'org.jenkins-ci.plugins' only when the plugin is absent
+    from the UC (private/renamed) or the field is missing.
+    """
+    entry = uc.get("plugins", {}).get(plugin_id, {})
+    return entry.get("groupId") or "org.jenkins-ci.plugins"
+
+
+def plugin_purl(group_id: str, plugin_id: str, version: str) -> str:
+    return f"pkg:maven/{group_id}/{plugin_id}@{version}"
 
 
 def plugin_cpe(plugin_id: str, version: str) -> str:
-    # NVD CPE format for Jenkins plugins:
+    # NVD CPE format for Jenkins plugins (used for CVE matching alongside PURL):
     #   cpe:2.3:a:jenkins:{plugin_id}:{version}:*:*:*:*:jenkins:*:*
-    # This is what NVD uses for plugin-level CVEs, e.g.:
-    #   cpe:2.3:a:jenkins:git:5.2.1:*:*:*:*:jenkins:*:*
+    # e.g. cpe:2.3:a:jenkins:git:5.2.1:*:*:*:*:jenkins:*:*
+    # Note: NVD sometimes uses the plugin's artifactId, sometimes a different
+    # identifier; the PURL match (which uses the exact Maven coordinates) is
+    # the primary matching mechanism in Dependency-Track.
     return f"cpe:2.3:a:jenkins:{plugin_id}:{version}:*:*:*:*:jenkins:*:*"
 
 
-def find_root_ref(bom: dict, plugin_id: str, installed_version: str) -> str:
-    """
-    Return the bom-ref to use as the root node in the dependency graph.
-
-    Syft sets metadata.component with a bom-ref (often a UUID or the PURL of
-    the scanned file).  We prefer that so the edges attach to the same node
-    Syft already created, falling back to constructing the expected PURL.
-    """
+def find_root_ref(bom: dict) -> Optional[str]:
+    """Return the existing bom-ref from Syft's metadata.component, or None."""
     meta = bom.get("metadata", {}).get("component", {})
-    ref: Optional[str] = meta.get("bom-ref") or meta.get("purl")
-    if ref:
-        return ref
-    return plugin_purl(plugin_id, installed_version)
+    return meta.get("bom-ref") or meta.get("purl") or None
 
 
 def main(argv: list[str]) -> int:
@@ -119,7 +123,8 @@ def main(argv: list[str]) -> int:
         # Plugin is private / very new / renamed — not in Update Center.
         # Still patch the root PURL so DT can match plugin-level CVEs.
         installed_ver = installed.get(args.plugin, "unknown")
-        correct_purl = plugin_purl(args.plugin, installed_ver)
+        group_id = get_group_id(uc, args.plugin)
+        correct_purl = plugin_purl(group_id, args.plugin, installed_ver)
         meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
         meta_component.update({
             "type":    "library",
@@ -131,7 +136,7 @@ def main(argv: list[str]) -> int:
         if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
             meta_component["bom-ref"] = correct_purl
         print(
-            f"[merge_uc] '{args.plugin}' not found in Update Center — PURL patched, no dep enrichment",
+            f"[merge_uc] '{args.plugin}' not found in Update Center — PURL patched (groupId: {group_id}), no dep enrichment",
             file=sys.stderr,
         )
         Path(out_path).write_text(json.dumps(bom, indent=2) + "\n", "utf-8")
@@ -155,15 +160,24 @@ def main(argv: list[str]) -> int:
     # Locate the root component bom-ref
     # ------------------------------------------------------------------
     installed_ver = installed.get(args.plugin, "unknown")
-    root_ref = find_root_ref(bom, args.plugin, installed_ver)
+    # Capture the OLD bom-ref (typically a UUID from Syft) before patching,
+    # so we can update the matching entry in the `dependencies` array below.
+    old_root_ref = find_root_ref(bom)
 
     # ------------------------------------------------------------------
     # Patch the root component to have a proper pkg:maven PURL so that
-    # Dependency-Track can match plugin-level CVEs (e.g. CVEs filed against
-    # pkg:maven/org.jenkins-ci.plugins/git rather than embedded JARs).
-    # Syft sets the root component to the scanned file path; we replace it.
+    # Dependency-Track can match plugin-level CVEs.
+    # The groupId comes from the Update Center JSON — it is the actual Maven
+    # groupId published to the Jenkins update site, e.g.:
+    #   git                  -> org.jenkins-ci.plugins
+    #   workflow-aggregator  -> org.jenkins-ci.plugins.workflow
+    #   blueocean            -> io.jenkins.blueocean
+    #   kubernetes           -> org.csanchez.jenkins.plugins
+    # Hardcoding org.jenkins-ci.plugins would cause a PURL mismatch in DT
+    # for any plugin whose real groupId differs, resulting in zero CVE matches.
     # ------------------------------------------------------------------
-    correct_purl = plugin_purl(args.plugin, installed_ver)
+    group_id = get_group_id(uc, args.plugin)
+    correct_purl = plugin_purl(group_id, args.plugin, installed_ver)
     meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
     meta_component["type"]    = "library"
     meta_component["purl"]    = correct_purl
@@ -173,7 +187,6 @@ def main(argv: list[str]) -> int:
     # Keep bom-ref stable: if it was already a PURL-like string, update it too
     if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
         meta_component["bom-ref"] = correct_purl
-    # root_ref may now differ — re-resolve so dependency edges attach correctly
     root_ref = correct_purl
 
     # ------------------------------------------------------------------
@@ -184,7 +197,8 @@ def main(argv: list[str]) -> int:
 
     new_dep_purls: list[str] = []
     for dep_id, dep_ver in inter_deps:
-        purl = plugin_purl(dep_id, dep_ver)
+        dep_group_id = get_group_id(uc, dep_id)
+        purl = plugin_purl(dep_group_id, dep_id, dep_ver)
         new_dep_purls.append(purl)
         if purl not in existing_purls:
             components.append({
@@ -193,13 +207,22 @@ def main(argv: list[str]) -> int:
                 "name":    dep_id,
                 "version": dep_ver,
                 "purl":    purl,
+                "cpe":     plugin_cpe(dep_id, dep_ver),
             })
 
     # ------------------------------------------------------------------
     # Add dependency edges from root → inter-plugin deps
     # ------------------------------------------------------------------
     dependencies: list[dict] = bom.setdefault("dependencies", [])
-    root_entry = next((d for d in dependencies if d.get("ref") == root_ref), None)
+    # Find the Syft-generated root entry using the OLD bom-ref (a UUID or the
+    # original file-path PURL).  If found, update its ref to the corrected
+    # PURL so the dependency tree in Dependency-Track is fully connected.
+    root_entry = next((d for d in dependencies if old_root_ref and d.get("ref") == old_root_ref), None)
+    if root_entry is not None:
+        root_entry["ref"] = root_ref
+    else:
+        # Also try the already-correct PURL in case the script is re-run.
+        root_entry = next((d for d in dependencies if d.get("ref") == root_ref), None)
     if root_entry is None:
         root_entry = {"ref": root_ref, "dependsOn": []}
         dependencies.append(root_entry)
