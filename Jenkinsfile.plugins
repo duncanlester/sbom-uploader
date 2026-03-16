@@ -51,15 +51,23 @@ pipeline {
           awk 'NF>=2 && !/^#/ {print $1 ":" $2}' plugins-list.txt > plugins-install.txt
           echo "Converted to jenkins-plugin-cli format ($(wc -l < plugins-install.txt | tr -d ' ') entries)"
 
-          # Clean previous run output; the compose file bind-mounts this dir
-          rm -rf plugins-output && mkdir -p plugins-output
+          # Use a named volume for output so host-path resolution is not needed.
+          # Jenkins workspace lives inside the Jenkins container; bind-mounting
+          # $(pwd) passes a container path to the host Docker daemon which
+          # creates a directory instead of mounting a file.
+          docker volume rm jenkins-plugin-output 2>/dev/null || true
+          docker volume create jenkins-plugin-output
 
-          docker compose --profile plugins up \
-            --exit-code-from jenkins-plugin-installer \
-            --abort-on-container-exit
+          # Pipe plugins-install.txt via stdin to avoid bind-mounting the file.
+          docker run --rm -i \
+            -v jenkins-plugin-output:/var/jenkins_home/plugins \
+            jenkins/jenkins:lts \
+            /bin/bash -c 'cat > /tmp/plugins-install.txt && jenkins-plugin-cli --plugin-file /tmp/plugins-install.txt --verbose' \
+            < plugins-install.txt
 
-          PLUGIN_COUNT=$(ls plugins-output/*.jpi plugins-output/*.hpi 2>/dev/null | wc -l | tr -d ' ')
-          echo "Installed ${PLUGIN_COUNT} plugin files into plugins-output/"
+          PLUGIN_COUNT=$(docker run --rm -v jenkins-plugin-output:/plugins alpine \
+            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null | wc -l')
+          echo "Installed ${PLUGIN_COUNT} plugin files into jenkins-plugin-output volume"
         '''
       }
     }
@@ -76,17 +84,21 @@ pipeline {
           set -euo pipefail
           mkdir -p sboms
 
-          for plugin_file in plugins-output/*.jpi plugins-output/*.hpi; do
-            [ -f "$plugin_file" ] || continue
-
-            # Strip path and extension to get the plugin ID
-            plugin_id=$(basename "${plugin_file%.*}")
+          for plugin_id in $(docker run --rm -v jenkins-plugin-output:/plugins alpine \
+            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null' | xargs -I{} basename {} | sed 's/\.[^.]*$//'); do
 
             echo "Scanning ${plugin_id}..."
             docker run --rm \
-              -v "$(pwd)/plugins-output:/plugins:ro" \
+              -v jenkins-plugin-output:/plugins:ro \
               anchore/syft:latest \
-              "file:/plugins/$(basename "$plugin_file")" \
+              "file:/plugins/${plugin_id}.jpi" \
+              -o cyclonedx-json \
+              -q \
+              --file "/dev/stdout" > "sboms/${plugin_id}.json" 2>/dev/null || \
+            docker run --rm \
+              -v jenkins-plugin-output:/plugins:ro \
+              anchore/syft:latest \
+              "file:/plugins/${plugin_id}.hpi" \
               -o cyclonedx-json \
               -q \
               --file "/dev/stdout" > "sboms/${plugin_id}.json"
@@ -185,7 +197,7 @@ pipeline {
   }
   post {
     always {
-        sh 'docker compose --profile plugins down --remove-orphans 2>/dev/null || true'
+        sh 'docker volume rm jenkins-plugin-output 2>/dev/null || true'
         deleteDir()
     }
     success {
