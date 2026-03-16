@@ -69,71 +69,84 @@ pipeline {
     // -----------------------------------------------------------------------
     // 3. Generate per-plugin CycloneDX SBOMs using cdxgen.
     //
-    //    A .jpi is a WAR-like ZIP archive. The embedded library JARs live in
-    //    WEB-INF/lib/, each with META-INF/maven/<groupId>/<artifactId>/pom.properties
-    //    containing the exact Maven coordinates.
+    //    A .jpi is a WAR-like ZIP archive. WEB-INF/lib/ contains the embedded
+    //    library JARs, each with META-INF/maven/<groupId>/<artifactId>/pom.properties.
+    //    cdxgen reads those to emit exact pkg:maven PURLs for DT matching.
     //
-    //    We extract each .jpi first, then scan WEB-INF/lib/ with cdxgen so it
-    //    reads real Maven metadata and emits correct pkg:maven PURLs that
-    //    Dependency-Track can match against NVD / OSV.
+    //    Jenkins workspace lives in a named Docker volume (not a host bind
+    //    mount), so we cannot use -v workspace/path:/container as an
+    //    intermediary between sibling containers. Everything must go through
+    //    named Docker volumes.
+    //
+    //    Flow:
+    //      jenkins-plugin-output  (jpi files)
+    //        → extract WEB-INF/lib/*.jar per plugin into jenkins-plugin-extracted
+    //      jenkins-plugin-extracted/<plugin-id>/  (bare JARs)
+    //        → cdxgen -t java produces SBOM → jenkins-plugin-sboms/<plugin-id>.json
+    //      jenkins-plugin-sboms
+    //        → copy back into workspace via volumes-from on jenkins-master
     // -----------------------------------------------------------------------
     stage('Generate per-plugin SBOMs with cdxgen') {
       steps {
-        sh """
+        sh '''
           set -euo pipefail
-          mkdir -p "${env.WORKSPACE}/sboms" "${env.WORKSPACE}/extracted"
 
-          USER_ID=\$(id -u)
-          GROUP_ID=\$(id -g)
+          docker volume rm jenkins-plugin-extracted jenkins-plugin-sboms 2>/dev/null || true
+          docker volume create jenkins-plugin-extracted
+          docker volume create jenkins-plugin-sboms
 
-          # Extract WEB-INF/lib JARs from every plugin in the named volume.
-          # Run as the Jenkins user so host-side directories are readable.
+          # Step A: extract WEB-INF/lib/*.jar from every .jpi into its own subdir
           docker run --rm \
-            -u \${USER_ID}:\${GROUP_ID} \
             -v jenkins-plugin-output:/plugins:ro \
-            -v "${env.WORKSPACE}/extracted":/extracted \
+            -v jenkins-plugin-extracted:/extracted \
             alpine \
             sh -c '
               apk add -q unzip
               for f in /plugins/*.jpi /plugins/*.hpi; do
-                [ -f "\$f" ] || continue
-                id=\$(basename "\$f" | sed "s/\\.[^.]*\$//")
-                mkdir -p "/extracted/\$id"
-                unzip -q "\$f" "WEB-INF/lib/*.jar" -d "/extracted/\$id" 2>/dev/null || true
+                [ -f "$f" ] || continue
+                id=$(basename "$f" | sed "s/\\.[^.]*$//")
+                mkdir -p "/extracted/$id"
+                unzip -q "$f" "WEB-INF/lib/*.jar" -d "/extracted/$id" 2>/dev/null || true
               done
-              echo "Extracted \$(ls /extracted | wc -l) plugins"
+              echo "Extracted $(ls /extracted | wc -l) plugins"
             '
 
-          # Scan each extracted WEB-INF/lib with cdxgen
-          SCANNED=0
-          SKIPPED=0
-          for plugin_dir in "${env.WORKSPACE}/extracted"/*/; do
-            plugin_id=\$(basename "\$plugin_dir")
-            lib_dir="\${plugin_dir}WEB-INF/lib"
+          # Step B: scan each plugin dir with cdxgen and write SBOM to volume
+          docker run --rm \
+            -v jenkins-plugin-extracted:/extracted:ro \
+            -v jenkins-plugin-sboms:/sboms \
+            alpine \
+            sh -c '
+              apk add -q bash
+              for plugin_dir in /extracted/*/; do
+                plugin_id=$(basename "$plugin_dir")
+                lib_dir="${plugin_dir}WEB-INF/lib"
+                [ -d "$lib_dir" ] || continue
+                jar_count=$(ls "$lib_dir"/*.jar 2>/dev/null | wc -l)
+                [ "$jar_count" -gt 0 ] || continue
+                echo "$plugin_id:$jar_count"
+              done
+            ' | while IFS=: read -r plugin_id jar_count; do
+              echo "Scanning ${plugin_id} (${jar_count} embedded JARs)..."
+              docker run --rm \
+                -v jenkins-plugin-extracted:/extracted:ro \
+                -v jenkins-plugin-sboms:/sboms \
+                ghcr.io/cyclonedx/cdxgen:latest \
+                -t java \
+                -o "/sboms/${plugin_id}.json" \
+                "/extracted/${plugin_id}/WEB-INF/lib"
+            done
 
-            if [ ! -d "\$lib_dir" ] || [ -z "\$(ls "\$lib_dir"/*.jar 2>/dev/null)" ]; then
-              SKIPPED=\$((SKIPPED + 1))
-              continue
-            fi
+          # Step C: copy SBOMs from the named volume back into the workspace
+          mkdir -p sboms
+          docker run --rm \
+            --volumes-from jenkins-master:ro \
+            -v jenkins-plugin-sboms:/sboms-src:ro \
+            alpine \
+            sh -c 'cp /sboms-src/*.json /var/jenkins_home/workspace/'"${JOB_NAME}"'/sboms/ 2>/dev/null && echo "Copied $(ls /sboms-src/*.json | wc -l) SBOMs"'
 
-            jar_count=\$(ls "\$lib_dir"/*.jar | wc -l | tr -d ' ')
-            echo "Scanning \${plugin_id} (\${jar_count} embedded JARs)..."
-
-            docker run --rm \
-              -u \${USER_ID}:\${GROUP_ID} \
-              -v "\${lib_dir}":/scan:ro \
-              -v "${env.WORKSPACE}/sboms":/sboms \
-              ghcr.io/cyclonedx/cdxgen:latest \
-              -t java \
-              -o "/sboms/\${plugin_id}.json" \
-              /scan
-
-            SCANNED=\$((SCANNED + 1))
-          done
-
-          rm -rf "${env.WORKSPACE}/extracted"
-          echo "Generated \${SCANNED} SBOMs (\${SKIPPED} plugins had no embedded JARs)"
-        """
+          echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs in workspace"
+        '''
       }
     }
 
@@ -224,7 +237,7 @@ pipeline {
   post {
     always {
       node('') {
-        sh 'docker volume rm jenkins-plugin-output 2>/dev/null || true'
+        sh 'docker volume rm jenkins-plugin-output jenkins-plugin-extracted jenkins-plugin-sboms 2>/dev/null || true'
         deleteDir()
       }
     }
