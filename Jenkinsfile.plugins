@@ -174,7 +174,9 @@ pipeline {
             def version  = pluginVersions.get(pluginId, 'unknown')
 
             echo "  → jenkins-plugin-${pluginId} @ ${version}"
-
+            script {
+                    uploadSBOM(sbomFile: env.SBOM_FILE, projectName: env.PROJECT_NAME, projectVersion: env.PROJECT_VERSION )
+                }
             uploadSBOM(
               sbomFile:       sbom.path,
               projectName:    "jenkins-plugin-${pluginId}",
