@@ -85,7 +85,7 @@ pipeline {
           mkdir -p sboms
 
           for plugin_id in $(docker run --rm -v jenkins-plugin-output:/plugins alpine \
-            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null' | xargs -I{} basename {} | sed 's/\.[^.]*$//'); do
+            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null' | xargs -I{} basename {} | sed 's/\\.[^.]*$//'); do
 
             echo "Scanning ${plugin_id}..."
             docker run --rm \
