@@ -106,9 +106,16 @@ def main(argv: list[str]) -> int:
     uc_entry = uc.get("plugins", {}).get(args.plugin)
     if not uc_entry:
         # Plugin is private / very new / renamed — not in Update Center.
-        # Write the SBOM unchanged so the pipeline continues cleanly.
+        # Still patch the root PURL so DT can match plugin-level CVEs.
+        installed_ver = installed.get(args.plugin, "unknown")
+        correct_purl = plugin_purl(args.plugin, installed_ver)
+        meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
+        meta_component.update({"purl": correct_purl, "name": args.plugin, "version": installed_ver})
+        meta_component.setdefault("type", "library")
+        if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
+            meta_component["bom-ref"] = correct_purl
         print(
-            f"[merge_uc] '{args.plugin}' not found in Update Center — skipping enrichment",
+            f"[merge_uc] '{args.plugin}' not found in Update Center — PURL patched, no dep enrichment",
             file=sys.stderr,
         )
         Path(out_path).write_text(json.dumps(bom, indent=2) + "\n", "utf-8")
@@ -126,15 +133,31 @@ def main(argv: list[str]) -> int:
         inter_deps.append((dep_id, dep_installed_ver))
 
     if not inter_deps:
-        print(f"[merge_uc] '{args.plugin}': no installed inter-plugin deps found — no enrichment needed")
-        Path(out_path).write_text(json.dumps(bom, indent=2) + "\n", "utf-8")
-        return 0
+        print(f"[merge_uc] '{args.plugin}': no installed inter-plugin deps — PURL patched only")
 
     # ------------------------------------------------------------------
     # Locate the root component bom-ref
     # ------------------------------------------------------------------
     installed_ver = installed.get(args.plugin, "unknown")
     root_ref = find_root_ref(bom, args.plugin, installed_ver)
+
+    # ------------------------------------------------------------------
+    # Patch the root component to have a proper pkg:maven PURL so that
+    # Dependency-Track can match plugin-level CVEs (e.g. CVEs filed against
+    # pkg:maven/org.jenkins-ci.plugins/git rather than embedded JARs).
+    # Syft sets the root component to the scanned file path; we replace it.
+    # ------------------------------------------------------------------
+    correct_purl = plugin_purl(args.plugin, installed_ver)
+    meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
+    meta_component["purl"]    = correct_purl
+    meta_component["name"]    = args.plugin
+    meta_component["version"] = installed_ver
+    meta_component.setdefault("type", "library")
+    # Keep bom-ref stable: if it was already a PURL-like string, update it too
+    if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
+        meta_component["bom-ref"] = correct_purl
+    # root_ref may now differ — re-resolve so dependency edges attach correctly
+    root_ref = correct_purl
 
     # ------------------------------------------------------------------
     # Add inter-plugin dep components (if not already in the SBOM)

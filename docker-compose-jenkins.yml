@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: jenkins-master
-    network_mode: bridge
     privileged: true
     user: root
     ports:
@@ -15,6 +14,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - JAVA_OPTS=-Duser.home=/var/jenkins_home
+    networks:
+      - dtrack-network
 volumes:
   jenkins_home_data_1:
+    external: true
+
+networks:
+  dtrack-network:
     external: true

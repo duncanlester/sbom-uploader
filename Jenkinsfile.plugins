@@ -162,7 +162,10 @@ pipeline {
           readFile('plugins-list.txt').readLines().each { line ->
             def parts = line.trim().split(/\s+/)
             if (parts.size() >= 2) {
-              pluginVersions[parts[0]] = parts[1]
+              // list-plugins format: "shortName  Long Display Name  1.2.3  (pinned)"
+              // version is the last token that isn't a parenthetical like (pinned)
+              def version = parts.findAll { !it.startsWith('(') }.last()
+              pluginVersions[parts[0]] = version
             }
           }
 
