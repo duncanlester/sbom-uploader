@@ -53,8 +53,11 @@ def load_installed_versions(plugins_list_path: str) -> dict[str, str]:
         if not line or line.startswith("#"):
             continue
         parts = WS.split(line)
+        # list-plugins format: "short-id  Display Name  1.2.3  (pinned)"
+        # version is the last token that is not a parenthetical like "(pinned)"
         if len(parts) >= 2:
-            versions[parts[0]] = parts[1]
+            non_paren = [p for p in parts if not p.startswith("(")]
+            versions[parts[0]] = non_paren[-1]
     return versions
 
 
