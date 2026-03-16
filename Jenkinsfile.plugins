@@ -141,13 +141,15 @@ pipeline {
                 "/extracted/${plugin_id}/WEB-INF/lib"
             done
 
-          # Step C: copy SBOMs from the named volume back into the workspace
+          # Step C: copy SBOMs from the named volume back into the workspace.
+          # Mount jenkins_home_data_1 directly (rw) — using --volumes-from jenkins-master:ro
+          # would make the jenkins home read-only and cause the cp to fail silently.
           mkdir -p sboms
           docker run --rm \
-            --volumes-from jenkins-master:ro \
+            -v jenkins_home_data_1:/var/jenkins_home \
             -v jenkins-plugin-sboms:/sboms-src:ro \
             alpine \
-            sh -c 'cp /sboms-src/*.json /var/jenkins_home/workspace/'"${JOB_NAME}"'/sboms/ 2>/dev/null && echo "Copied $(ls /sboms-src/*.json | wc -l) SBOMs"'
+            sh -c 'cp /sboms-src/*.json /var/jenkins_home/workspace/${JOB_NAME}/sboms/ && echo "Copied $(ls /sboms-src/*.json | wc -l) SBOMs"'
 
           echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs in workspace"
         '''
