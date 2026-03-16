@@ -41,156 +41,69 @@ pipeline {
     }
 
     // -----------------------------------------------------------------------
-    // 2. Copy the already-installed .jpi / .hpi files from the live Jenkins
-    //    master container into a named Docker volume so Syft can read them.
-    //    No re-download required — avoids 404s for archived / removed plugins.
+    // 2. Generate per-plugin CycloneDX SBOMs.
+    //
+    //    generate_plugin_sbom.py reads each .jpi directly from
+    //    /var/jenkins_home/plugins/ (Jenkins runs as root and has direct
+    //    filesystem access — no Docker volume gymnastics needed).
+    //
+    //    For each plugin it:
+    //      • Reads every WEB-INF/lib/*.jar inside the .jpi ZIP
+    //      • Extracts META-INF/maven/*/pom.properties for exact Maven coords
+    //      • Looks up the plugin's own groupId from the Update Center JSON
+    //      • Adds inter-plugin dependency edges from the Update Center
+    //      • Writes a complete CycloneDX 1.4 JSON SBOM to sboms/<id>.json
     // -----------------------------------------------------------------------
-    stage('Collect installed .jpi files') {
+    stage('Generate per-plugin SBOMs') {
       steps {
         sh '''
           set -euo pipefail
+          mkdir -p sboms
 
-          docker volume rm jenkins-plugin-output 2>/dev/null || true
-          docker volume create jenkins-plugin-output
-
-          # Mount both the jenkins-master volumes (read-only) and our output
-          # volume, then copy every .jpi / .hpi across.
-          docker run --rm \
-            --volumes-from jenkins-master:ro \
-            -v jenkins-plugin-output:/dest \
-            alpine \
-            sh -c 'cp /var/jenkins_home/plugins/*.jpi /dest/ 2>/dev/null; \
-                   cp /var/jenkins_home/plugins/*.hpi /dest/ 2>/dev/null; \
-                   echo "Copied $(ls /dest | wc -l) plugin files"'
-        '''
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // 3. Generate per-plugin CycloneDX SBOMs using cdxgen.
-    //
-    //    A .jpi is a WAR-like ZIP archive. WEB-INF/lib/ contains the embedded
-    //    library JARs, each with META-INF/maven/<groupId>/<artifactId>/pom.properties.
-    //    cdxgen reads those to emit exact pkg:maven PURLs for DT matching.
-    //
-    //    Jenkins workspace lives in a named Docker volume (not a host bind
-    //    mount), so we cannot use -v workspace/path:/container as an
-    //    intermediary between sibling containers. Everything must go through
-    //    named Docker volumes.
-    //
-    //    Flow:
-    //      jenkins-plugin-output  (jpi files)
-    //        → extract WEB-INF/lib/*.jar per plugin into jenkins-plugin-extracted
-    //      jenkins-plugin-extracted/<plugin-id>/  (bare JARs)
-    //        → cdxgen -t java produces SBOM → jenkins-plugin-sboms/<plugin-id>.json
-    //      jenkins-plugin-sboms
-    //        → copy back into workspace via volumes-from on jenkins-master
-    // -----------------------------------------------------------------------
-    stage('Generate per-plugin SBOMs with cdxgen') {
-      steps {
-        sh '''
-          set -euo pipefail
-
-          docker volume rm jenkins-plugin-extracted jenkins-plugin-sboms 2>/dev/null || true
-          docker volume create jenkins-plugin-extracted
-          docker volume create jenkins-plugin-sboms
-
-          # Make volumes world-writable so non-root container users can write to them
-          docker run --rm -v jenkins-plugin-extracted:/extracted alpine chmod 777 /extracted
-          docker run --rm -v jenkins-plugin-sboms:/sboms       alpine chmod 777 /sboms
-
-          # Step A: extract WEB-INF/lib/*.jar from every .jpi into its own subdir
-          docker run --rm \
-            -v jenkins-plugin-output:/plugins:ro \
-            -v jenkins-plugin-extracted:/extracted \
-            alpine \
-            sh -c '
-              apk add -q unzip
-              for f in /plugins/*.jpi /plugins/*.hpi; do
-                [ -f "$f" ] || continue
-                id=$(basename "$f" | sed "s/\\.[^.]*$//")
-                mkdir -p "/extracted/$id"
-                unzip -q "$f" "WEB-INF/lib/*.jar" -d "/extracted/$id" 2>/dev/null || true
-              done
-              echo "Extracted $(ls /extracted | wc -l) plugins"
-            '
-
-          # Step B: scan each plugin dir with cdxgen and write SBOM to volume
-          docker run --rm \
-            -v jenkins-plugin-extracted:/extracted:ro \
-            -v jenkins-plugin-sboms:/sboms \
-            alpine \
-            sh -c '
-              apk add -q bash
-              for plugin_dir in /extracted/*/; do
-                plugin_id=$(basename "$plugin_dir")
-                lib_dir="${plugin_dir}WEB-INF/lib"
-                [ -d "$lib_dir" ] || continue
-                jar_count=$(ls "$lib_dir"/*.jar 2>/dev/null | wc -l)
-                [ "$jar_count" -gt 0 ] || continue
-                echo "$plugin_id:$jar_count"
-              done
-            ' | while IFS=: read -r plugin_id jar_count; do
-              echo "Scanning ${plugin_id} (${jar_count} embedded JARs)..."
-              docker run --rm \
-                -v jenkins-plugin-extracted:/extracted:ro \
-                -v jenkins-plugin-sboms:/sboms \
-                ghcr.io/cyclonedx/cdxgen:latest \
-                -t java \
-                -o "/sboms/${plugin_id}.json" \
-                "/extracted/${plugin_id}/WEB-INF/lib"
-            done
-
-          # Step C: copy SBOMs from the named volume back into the workspace.
-          # -e JOB_NAME passes the Jenkins env var into the container so the
-          # destination path expands correctly inside the sh -c single-quote string.
-          docker run --rm \
-            -e JOB_NAME \
-            -v jenkins_home_data_1:/var/jenkins_home \
-            -v jenkins-plugin-sboms:/sboms-src:ro \
-            alpine \
-            sh -c 'mkdir -p "/var/jenkins_home/workspace/${JOB_NAME}/sboms" && cp /sboms-src/*.json "/var/jenkins_home/workspace/${JOB_NAME}/sboms/" && echo "Copied $(ls /sboms-src/*.json | wc -l) SBOMs"'
-
-          echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs in workspace"
-        '''
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // 4. Enrich each SBOM with inter-plugin dependency edges from the Jenkins
-    //    Update Center.  cdxgen already captured the embedded-JAR tree inside
-    //    each .jpi; this stage adds the plugin → plugin edges on top so that
-    //    Dependency-Track shows the full graph:
-    //
-    //      plugin-git
-    //        ├── git-client  (inter-plugin, from Update Center)
-    //        ├── scm-api     (inter-plugin, from Update Center)
-    //        └── jackson-databind-2.14.x  (embedded JAR, from Syft)
-    // -----------------------------------------------------------------------
-    stage('Enrich SBOMs with inter-plugin dependency graph') {
-      steps {
-        sh '''
-          set -euo pipefail
-
-          # Strip the JSONP callback wrapper Jenkins adds around update-center.json
+          # Fetch and strip the JSONP wrapper Jenkins adds around update-center.json
           curl -fsSL https://updates.jenkins.io/current/update-center.json \
             | sed '1d;$d' > update-center.json
-
           echo "Fetched Update Center metadata"
 
-          ENRICHED=0
-          for sbom_file in sboms/*.json; do
-            [ -f "$sbom_file" ] || continue
-            plugin_id=$(basename "${sbom_file%.*}")
-            python3 resources/scripts/merge_uc_dependencies.py \
-              --sbom    "$sbom_file" \
-              --uc      update-center.json \
-              --plugins plugins-list.txt \
-              --plugin  "$plugin_id"
-            ENRICHED=$((ENRICHED + 1))
-          done
+          GENERATED=0
+          FAILED=0
+          SKIPPED=0
 
-          echo "Enriched ${ENRICHED} SBOMs with inter-plugin dependency edges"
+          while IFS= read -r line; do
+            plugin_id=$(echo "$line" | awk "{print \$1}")
+            [ -n "$plugin_id" ] || continue
+
+            # Extract the version token: last non-parenthetical field
+            version=$(echo "$line" | grep -oE "[0-9]+[.][0-9]+([.][0-9]+)*(-[0-9]+)?" | tail -1)
+            if [ -z "$version" ]; then
+              echo "WARNING: cannot parse version for '${plugin_id}', skipping"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+
+            jpi_file="/var/jenkins_home/plugins/${plugin_id}.jpi"
+            [ -f "$jpi_file" ] || jpi_file="/var/jenkins_home/plugins/${plugin_id}.hpi"
+            if [ ! -f "$jpi_file" ]; then
+              echo "WARNING: no .jpi/.hpi found for '${plugin_id}' at /var/jenkins_home/plugins/, skipping"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+
+            if python3 resources/scripts/generate_plugin_sbom.py \
+                --jpi       "$jpi_file" \
+                --plugin-id "$plugin_id" \
+                --version   "$version" \
+                --uc        update-center.json \
+                --plugins   plugins-list.txt \
+                --output    "sboms/${plugin_id}.json"; then
+              GENERATED=$((GENERATED + 1))
+            else
+              echo "WARNING: SBOM generation failed for '${plugin_id}'"
+              FAILED=$((FAILED + 1))
+            fi
+          done < plugins-list.txt
+
+          echo "Done — generated: ${GENERATED}, skipped: ${SKIPPED}, failed: ${FAILED}"
         '''
         archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
       }
@@ -242,10 +155,7 @@ pipeline {
   }
   post {
     always {
-      node('') {
-        sh 'docker volume rm jenkins-plugin-output jenkins-plugin-extracted jenkins-plugin-sboms 2>/dev/null || true'
-        deleteDir()
-      }
+      deleteDir()
     }
   }
 }
