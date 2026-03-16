@@ -18,14 +18,28 @@ pipeline {
 
     stage('List installed plugins') {
       steps {
-        listInstalledPlugins()
+        sh '''
+          set -euo pipefail
+          curl -fsSL "${TARGET_JENKINS_URL}/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
+          java -jar jenkins-cli.jar -s "${TARGET_JENKINS_URL}" list-plugins > plugins-list.txt
+          echo "Found $(wc -l < plugins-list.txt | tr -d ' ') installed plugins"
+        '''
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
     }
 
     stage('Generate per-plugin SBOMs') {
       steps {
-        generatePluginSBOMs()
+        sh '''
+          set -euo pipefail
+          mkdir -p sboms
+          while IFS= read -r line; do
+            plugin_id="${line%% *}"
+            jpi="/var/jenkins_home/plugins/${plugin_id}.jpi"
+            [ -f "$jpi" ] || continue
+            syft "$jpi" -o cyclonedx-json > "sboms/${plugin_id}.json"
+          done < plugins-list.txt
+        '''
         archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
       }
     }
