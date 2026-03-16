@@ -67,35 +67,38 @@ pipeline {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Scan every installed plugin with Syft to produce per-plugin CycloneDX
-    //    SBOMs.  Syft reads real Maven metadata from inside each .jpi archive,
-    //    giving proper pkg:maven PURLs that Dependency-Track can match against
-    //    NVD / OSV — including vulnerabilities in embedded libraries.
+    // 3. Scan every installed plugin with cdxgen (-t java) to produce
+    //    per-plugin CycloneDX SBOMs.
+    //
+    //    cdxgen reads META-INF/maven/*/pom.properties from every JAR inside
+    //    the .jpi archive and emits exact pkg:maven/groupId/artifactId@version
+    //    PURLs — the same coordinates that NVD / OSV index CVEs against, and
+    //    the same coordinates Dependency-Track uses for PURL matching.
+    //
+    //    Syft was replaced here because it generates PURLs from filename
+    //    heuristics rather than embedded Maven metadata, producing wrong or
+    //    missing groupIds that cause DT to find zero vulnerabilities.
     // -----------------------------------------------------------------------
-    stage('Generate per-plugin SBOMs with Syft') {
+    stage('Generate per-plugin SBOMs with cdxgen') {
       steps {
         sh '''
           set -euo pipefail
           mkdir -p sboms
 
-          for plugin_id in $(docker run --rm -v jenkins-plugin-output:/plugins alpine \
-            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null' | xargs -I{} basename {} | sed 's/\\.[^.]*$//'); do
+          for plugin_file in $(docker run --rm -v jenkins-plugin-output:/plugins alpine \
+            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null'); do
 
+            plugin_id=$(basename "${plugin_file}" | sed 's/\\.[^.]*$//')
             echo "Scanning ${plugin_id}..."
+
             docker run --rm \
               -v jenkins-plugin-output:/plugins:ro \
-              anchore/syft:latest \
-              "file:/plugins/${plugin_id}.jpi" \
-              -o cyclonedx-json \
-              -q \
-              --file "/dev/stdout" > "sboms/${plugin_id}.json" 2>/dev/null || \
-            docker run --rm \
-              -v jenkins-plugin-output:/plugins:ro \
-              anchore/syft:latest \
-              "file:/plugins/${plugin_id}.hpi" \
-              -o cyclonedx-json \
-              -q \
-              --file "/dev/stdout" > "sboms/${plugin_id}.json"
+              -v "${PWD}/sboms":/sboms \
+              ghcr.io/cyclonedx/cdxgen:latest \
+              -t java \
+              --no-recurse \
+              -o "/sboms/${plugin_id}.json" \
+              "${plugin_file}"
           done
 
           echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs"
@@ -105,7 +108,7 @@ pipeline {
 
     // -----------------------------------------------------------------------
     // 4. Enrich each SBOM with inter-plugin dependency edges from the Jenkins
-    //    Update Center.  Syft already captured the embedded-JAR tree inside
+    //    Update Center.  cdxgen already captured the embedded-JAR tree inside
     //    each .jpi; this stage adds the plugin → plugin edges on top so that
     //    Dependency-Track shows the full graph:
     //
