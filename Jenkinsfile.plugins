@@ -81,28 +81,33 @@ pipeline {
     // -----------------------------------------------------------------------
     stage('Generate per-plugin SBOMs with cdxgen') {
       steps {
-        sh '''
-          set -euo pipefail
-          mkdir -p sboms
+        script {
+          sh 'mkdir -p sboms'
 
-          for plugin_file in $(docker run --rm -v jenkins-plugin-output:/plugins alpine \
-            sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null'); do
+          // List plugin filenames from the named volume (returns bare names like "git.jpi")
+          def pluginNames = sh(
+            script: "docker run --rm -v jenkins-plugin-output:/plugins alpine sh -c 'ls /plugins/*.jpi /plugins/*.hpi 2>/dev/null | xargs -I{} basename {}'",
+            returnStdout: true
+          ).trim().split('\n')
 
-            plugin_id=$(basename "${plugin_file}" | sed 's/\\.[^.]*$//')
-            echo "Scanning ${plugin_id}..."
+          pluginNames.each { pluginName ->
+            def pluginId = pluginName.replaceAll('\\.[^.]+$', '')
+            echo "Scanning ${pluginId}..."
+            // Mount the named volume at /plugins and the sboms dir at /sboms
+            sh """
+              docker run --rm \
+                -v jenkins-plugin-output:/plugins:ro \
+                -v "${env.WORKSPACE}/sboms":/sboms \
+                ghcr.io/cyclonedx/cdxgen:latest \
+                -t java \
+                --no-recurse \
+                -o "/sboms/${pluginId}.json" \
+                "/plugins/${pluginName}"
+            """
+          }
 
-            docker run --rm \
-              -v jenkins-plugin-output:/plugins:ro \
-              -v "${PWD}/sboms":/sboms \
-              ghcr.io/cyclonedx/cdxgen:latest \
-              -t java \
-              --no-recurse \
-              -o "/sboms/${plugin_id}.json" \
-              "${plugin_file}"
-          done
-
-          echo "Generated $(ls sboms/*.json 2>/dev/null | wc -l | tr -d ' ') SBOMs"
-        '''
+          echo "Generated ${sh(script: 'ls sboms/*.json 2>/dev/null | wc -l', returnStdout: true).trim()} SBOMs"
+        }
       }
     }
 
