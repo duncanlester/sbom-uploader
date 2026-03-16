@@ -12,136 +12,27 @@ pipeline {
   }
   environment {
     DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-    DEPENDENCY_TRACK_API_URL = "${DEPENDENCY_TRACK_URL ?: 'http://dtrack-apiserver:8080'}"
-    PROJECT_VERSION = "1.0.0"
-    SBOM_FILE = 'sbom.json'
-    PROJECT_NAME = "jenkins-plugin"
   }
 
   stages {
 
-    // -----------------------------------------------------------------------
-    // 1. Get the exact plugin versions currently installed on the live Jenkins
-    // -----------------------------------------------------------------------
     stage('List installed plugins') {
       steps {
-        sh '''
-          set -euo pipefail
-          curl -fsSL "${TARGET_JENKINS_URL}/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
-
-          # Produces lines like:  git 5.2.1 (pinned)
-          java -jar jenkins-cli.jar \
-            -s "${TARGET_JENKINS_URL}" \
-            list-plugins > plugins-list.txt
-
-          echo "Found $(wc -l < plugins-list.txt | tr -d ' ') installed plugins"
-        '''
+        listInstalledPlugins()
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
     }
 
-    // -----------------------------------------------------------------------
-    // 2. Generate per-plugin CycloneDX SBOMs.
-    //
-    //    generate_plugin_sbom.py reads each .jpi directly from
-    //    /var/jenkins_home/plugins/ (Jenkins runs as root and has direct
-    //    filesystem access — no Docker volume gymnastics needed).
-    //
-    //    For each plugin it:
-    //      • Reads every WEB-INF/lib/*.jar inside the .jpi ZIP
-    //      • Extracts META-INF/maven/*/pom.properties for exact Maven coords
-    //      • Looks up the plugin's own groupId from the Update Center JSON
-    //      • Adds inter-plugin dependency edges from the Update Center
-    //      • Writes a complete CycloneDX 1.4 JSON SBOM to sboms/<id>.json
-    // -----------------------------------------------------------------------
     stage('Generate per-plugin SBOMs') {
       steps {
-        sh '''
-          set -euo pipefail
-          mkdir -p sboms
-
-          # Fetch and strip the JSONP wrapper Jenkins adds around update-center.json
-          curl -fsSL https://updates.jenkins.io/current/update-center.json \
-            | sed '1d;$d' > update-center.json
-
-          # Single Python invocation processes all plugins.
-          # Prints a sample SBOM component list so we can verify the PURLs.
-          python3 resources/scripts/generate_plugin_sbom.py \
-            --batch \
-            --plugins-dir /var/jenkins_home/plugins \
-            --output-dir  sboms \
-            --uc          update-center.json \
-            --plugins     plugins-list.txt
-
-          # --- Diagnostic: show PURLs from the first fat plugin found ---
-          # git/jackson2-api bundle jgit/jackson — known CVE targets.
-          # 0 components here = ZIP reading bug; groupId=unknown = no pom.properties.
-          for probe in git jackson2-api docker-commons kubernetes credentials; do
-            f="sboms/${probe}.json"
-            [ -f "$f" ] || continue
-            echo ""
-            echo "=== PROBE: ${probe} ==="
-            python3 - "$f" <<'PYEOF'
-import json, sys
-bom  = json.load(open(sys.argv[1]))
-root = bom['metadata']['component']
-print('  root purl : ' + str(root.get('purl')))
-print('  root cpe  : ' + str(root.get('cpe')))
-comps = bom.get('components', [])
-print('  components: ' + str(len(comps)))
-for c in comps[:20]:
-    print('    ' + str(c.get('purl')))
-if len(comps) > 20:
-    print('    ... (' + str(len(comps) - 20) + ' more)')
-PYEOF
-            break
-          done
-        '''
+        generatePluginSBOMs()
         archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
       }
     }
 
-    // -----------------------------------------------------------------------
-    // 5. Upload each plugin's SBOM to Dependency-Track as its own project.
-    //
-    //    This gives you per-plugin granularity in DT:
-    //      • Each plugin is a separate project (jenkins-plugin-<id>)
-    //      • Findings, policies, and suppression rules are scoped per plugin
-    //      • The "Findings" view immediately shows you which plugin is affected
-    //
-    //    Plugin versions are read from the original plugins-list.txt so the DT
-    //    project version matches the installed version exactly.
-    // -----------------------------------------------------------------------
-    stage('Upload enriched SBOMs to Dependency-Track') {
+    stage('Upload SBOMs to Dependency-Track') {
       steps {
-        script {
-          // Build a map of plugin-id -> version from the list-plugins output
-          def pluginVersions = [:]
-          readFile('plugins-list.txt').readLines().each { line ->
-            def parts = line.trim().split(/\s+/)
-            if (parts.size() >= 2) {
-              // list-plugins format: "shortName  Long Display Name  1.2.3  (pinned)"
-              // version is the last token that isn't a parenthetical like (pinned)
-              def version = parts.findAll { !it.startsWith('(') }.last()
-              pluginVersions[parts[0]] = version
-            }
-          }
-
-          def sbomFiles = findFiles(glob: 'sboms/*.json')
-          echo "Uploading ${sbomFiles.size()} SBOMs to Dependency-Track..."
-
-          sbomFiles.each { sbom ->
-            def pluginId = sbom.name.replaceAll(/\.json$/, '')
-            def version  = pluginVersions.get(pluginId, 'unknown')
-
-            echo "  → jenkins-plugin-${pluginId} @ ${version}"
-            uploadSBOM(
-              sbomFile:       sbom.path,
-              projectName:    "jenkins-plugin-${pluginId}",
-              projectVersion: version,
-            )
-          }
-        }
+        uploadPluginSBOMs()
       }
     }
   }
