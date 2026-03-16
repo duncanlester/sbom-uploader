@@ -65,6 +65,14 @@ def plugin_purl(plugin_id: str, version: str) -> str:
     return f"pkg:maven/org.jenkins-ci.plugins/{plugin_id}@{version}"
 
 
+def plugin_cpe(plugin_id: str, version: str) -> str:
+    # NVD CPE format for Jenkins plugins:
+    #   cpe:2.3:a:jenkins:{plugin_id}:{version}:*:*:*:*:jenkins:*:*
+    # This is what NVD uses for plugin-level CVEs, e.g.:
+    #   cpe:2.3:a:jenkins:git:5.2.1:*:*:*:*:jenkins:*:*
+    return f"cpe:2.3:a:jenkins:{plugin_id}:{version}:*:*:*:*:jenkins:*:*"
+
+
 def find_root_ref(bom: dict, plugin_id: str, installed_version: str) -> str:
     """
     Return the bom-ref to use as the root node in the dependency graph.
@@ -110,7 +118,12 @@ def main(argv: list[str]) -> int:
         installed_ver = installed.get(args.plugin, "unknown")
         correct_purl = plugin_purl(args.plugin, installed_ver)
         meta_component = bom.setdefault("metadata", {}).setdefault("component", {})
-        meta_component.update({"purl": correct_purl, "name": args.plugin, "version": installed_ver})
+        meta_component.update({
+            "purl":    correct_purl,
+            "name":    args.plugin,
+            "version": installed_ver,
+            "cpe":     plugin_cpe(args.plugin, installed_ver),
+        })
         meta_component.setdefault("type", "library")
         if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
             meta_component["bom-ref"] = correct_purl
@@ -152,6 +165,7 @@ def main(argv: list[str]) -> int:
     meta_component["purl"]    = correct_purl
     meta_component["name"]    = args.plugin
     meta_component["version"] = installed_ver
+    meta_component["cpe"]     = plugin_cpe(args.plugin, installed_ver)
     meta_component.setdefault("type", "library")
     # Keep bom-ref stable: if it was already a PURL-like string, update it too
     if meta_component.get("bom-ref", "").startswith("pkg:") or not meta_component.get("bom-ref"):
