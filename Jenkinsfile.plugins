@@ -73,63 +73,67 @@ pipeline {
     //    WEB-INF/lib/, each with META-INF/maven/<groupId>/<artifactId>/pom.properties
     //    containing the exact Maven coordinates.
     //
-    //    We must extract each .jpi first, then point cdxgen at WEB-INF/lib/.
-    //    Pointing cdxgen at the .jpi file directly produces empty SBOMs because
-    //    it does not unpack the archive — leaving Dependency-Track with zero
-    //    components to match against vulnerability databases.
+    //    We extract each .jpi first, then scan WEB-INF/lib/ with cdxgen so it
+    //    reads real Maven metadata and emits correct pkg:maven PURLs that
+    //    Dependency-Track can match against NVD / OSV.
     // -----------------------------------------------------------------------
     stage('Generate per-plugin SBOMs with cdxgen') {
       steps {
-        script {
-          sh "mkdir -p ${env.WORKSPACE}/sboms ${env.WORKSPACE}/extracted"
+        sh """
+          set -euo pipefail
+          mkdir -p "${env.WORKSPACE}/sboms" "${env.WORKSPACE}/extracted"
 
-          def userId  = sh(script: 'id -u', returnStdout: true).trim()
-          def groupId = sh(script: 'id -g', returnStdout: true).trim()
+          USER_ID=\$(id -u)
+          GROUP_ID=\$(id -g)
 
-          // Extract WEB-INF/lib JARs from every plugin in the named volume
-          sh """
+          # Extract WEB-INF/lib JARs from every plugin in the named volume.
+          # Run as the Jenkins user so host-side directories are readable.
+          docker run --rm \
+            -u \${USER_ID}:\${GROUP_ID} \
+            -v jenkins-plugin-output:/plugins:ro \
+            -v "${env.WORKSPACE}/extracted":/extracted \
+            alpine \
+            sh -c '
+              apk add -q unzip
+              for f in /plugins/*.jpi /plugins/*.hpi; do
+                [ -f "\$f" ] || continue
+                id=\$(basename "\$f" | sed "s/\\.[^.]*\$//")
+                mkdir -p "/extracted/\$id"
+                unzip -q "\$f" "WEB-INF/lib/*.jar" -d "/extracted/\$id" 2>/dev/null || true
+              done
+              echo "Extracted \$(ls /extracted | wc -l) plugins"
+            '
+
+          # Scan each extracted WEB-INF/lib with cdxgen
+          SCANNED=0
+          SKIPPED=0
+          for plugin_dir in "${env.WORKSPACE}/extracted"/*/; do
+            plugin_id=\$(basename "\$plugin_dir")
+            lib_dir="\${plugin_dir}WEB-INF/lib"
+
+            if [ ! -d "\$lib_dir" ] || [ -z "\$(ls "\$lib_dir"/*.jar 2>/dev/null)" ]; then
+              SKIPPED=\$((SKIPPED + 1))
+              continue
+            fi
+
+            jar_count=\$(ls "\$lib_dir"/*.jar | wc -l | tr -d ' ')
+            echo "Scanning \${plugin_id} (\${jar_count} embedded JARs)..."
+
             docker run --rm \
-              -v jenkins-plugin-output:/plugins:ro \
-              -v "${env.WORKSPACE}/extracted":/extracted \
-              alpine \
-              sh -c '
-                apk add -q unzip
-                for f in /plugins/*.jpi /plugins/*.hpi; do
-                  [ -f "\$f" ] || continue
-                  id=\$(basename "\$f" | sed "s/\\.[^.]*\$//")
-                  mkdir -p "/extracted/\$id"
-                  unzip -q "\$f" "WEB-INF/lib/*.jar" -d "/extracted/\$id" 2>/dev/null || true
-                done
-                echo "Extracted \$(ls /extracted | wc -l) plugins"
-              '
-          """
+              -u \${USER_ID}:\${GROUP_ID} \
+              -v "\${lib_dir}":/scan:ro \
+              -v "${env.WORKSPACE}/sboms":/sboms \
+              ghcr.io/cyclonedx/cdxgen:latest \
+              -t java \
+              -o "/sboms/\${plugin_id}.json" \
+              /scan
 
-          // Scan each extracted WEB-INF/lib directory with cdxgen
-          def pluginIds = sh(script: "ls ${env.WORKSPACE}/extracted/", returnStdout: true).trim().split('\n')
+            SCANNED=\$((SCANNED + 1))
+          done
 
-          pluginIds.each { pluginId ->
-            def libDir = "${env.WORKSPACE}/extracted/${pluginId}/WEB-INF/lib"
-            def hasLibs = sh(script: "test -d '${libDir}' && ls '${libDir}'/*.jar 2>/dev/null | wc -l | tr -d ' '", returnStdout: true).trim()
-            if (hasLibs != '0') {
-              echo "Scanning ${pluginId} (${hasLibs} embedded JARs)..."
-              sh """
-                docker run --rm \
-                  -u ${userId}:${groupId} \
-                  -v "${libDir}":/scan:ro \
-                  -v "${env.WORKSPACE}/sboms":/sboms \
-                  ghcr.io/cyclonedx/cdxgen:latest \
-                  -t java \
-                  -o "/sboms/${pluginId}.json" \
-                  /scan
-              """
-            } else {
-              echo "Skipping ${pluginId} — no embedded JARs"
-            }
-          }
-
-          sh "rm -rf ${env.WORKSPACE}/extracted"
-          echo "Generated ${sh(script: 'ls sboms/*.json 2>/dev/null | wc -l', returnStdout: true).trim()} SBOMs"
-        }
+          rm -rf "${env.WORKSPACE}/extracted"
+          echo "Generated \${SCANNED} SBOMs (\${SKIPPED} plugins had no embedded JARs)"
+        """
       }
     }
 
