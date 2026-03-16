@@ -13,8 +13,12 @@ def call(Map config) {
     def sbomFile = config.sbomFile
     def projectName = config.projectName
     def projectVersion = config.projectVersion
-    def apiUrl = config.apiUrl ?: env.DEPENDENCY_TRACK_API_URL
-    def apiKeyCredId = config.apiKeyCredId ?: 'dependency-track-api-key'
+    def apiUrl       = config.apiUrl       ?: env.DEPENDENCY_TRACK_API_URL
+    def apiKeyCredId  = config.apiKeyCredId  ?: 'dependency-track-api-key'
+    def parentName    = config.parentName    ?: ''
+    def parentVersion = config.parentVersion ?: ''
+
+    def parentFields = parentName ? "-F \"parentName=${parentName}\" -F \"parentVersion=${parentVersion}\"" : ''
 
     withCredentials([string(credentialsId: apiKeyCredId, variable: 'DT_API_KEY')]) {
         sh """
@@ -25,6 +29,7 @@ def call(Map config) {
                 -F "projectVersion=${projectVersion}" \
                 -F "classifier=APPLICATION" \
                 -F "autoCreate=true" \
+                ${parentFields} \
                 -F "bom=@${sbomFile}"
             echo ""
             echo "SBOM uploaded successfully"

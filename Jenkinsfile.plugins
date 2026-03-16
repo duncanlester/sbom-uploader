@@ -23,6 +23,8 @@ pipeline {
           curl -fsSL "${TARGET_JENKINS_URL}/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
           java -jar jenkins-cli.jar -s "${TARGET_JENKINS_URL}" list-plugins > plugins-list.txt
           echo "Found $(wc -l < plugins-list.txt | tr -d ' ') installed plugins"
+          curl -sI "${TARGET_JENKINS_URL}/" | grep -i 'X-Jenkins:' | awk '{print $2}' | tr -d '\r' > jenkins-version.txt
+          echo "Jenkins version: $(cat jenkins-version.txt)"
         '''
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
@@ -46,7 +48,10 @@ pipeline {
 
     stage('Upload SBOMs to Dependency-Track') {
       steps {
-        uploadPluginSBOMs()
+        script {
+          def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
+          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion)
+        }
       }
     }
   }
