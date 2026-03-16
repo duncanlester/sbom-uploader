@@ -235,26 +235,38 @@ def generate_sbom(
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="Generate a CycloneDX 1.4 SBOM from a Jenkins .jpi/.hpi plugin file"
+        description="Generate CycloneDX 1.4 SBOMs from Jenkins .jpi/.hpi plugin files"
     )
-    parser.add_argument("--jpi",       required=True, help="Path to the .jpi or .hpi file")
-    parser.add_argument("--plugin-id", required=True, help="Plugin short name (e.g. 'git')")
-    parser.add_argument("--version",   required=True, help="Installed version (e.g. '5.2.1')")
-    parser.add_argument("--uc",        required=True, help="update-center.json (JSONP wrapper stripped)")
-    parser.add_argument("--plugins",   required=True, help="jenkins-cli list-plugins output file")
-    parser.add_argument("--output",    required=True, help="Output SBOM JSON file path")
+    # Batch mode (recommended): process all plugins in one Python invocation
+    parser.add_argument("--batch",       action="store_true", help="Process all plugins from --plugins-list in one pass")
+    parser.add_argument("--plugins-dir", default="/var/jenkins_home/plugins", help="Directory containing .jpi/.hpi files (batch mode)")
+    parser.add_argument("--output-dir",  default="sboms", help="Output directory for SBOM JSON files (batch mode)")
+    # Single-plugin mode (legacy)
+    parser.add_argument("--jpi",       help="Path to the .jpi or .hpi file")
+    parser.add_argument("--plugin-id", help="Plugin short name (e.g. 'git')")
+    parser.add_argument("--version",   help="Installed version (e.g. '5.2.1')")
+    parser.add_argument("--output",    help="Output SBOM JSON file path")
+    # Shared
+    parser.add_argument("--uc",      required=True, help="update-center.json (JSONP wrapper stripped)")
+    parser.add_argument("--plugins", required=True, help="jenkins-cli list-plugins output file")
     args = parser.parse_args(argv[1:])
-
-    jpi_path = args.jpi
-    if not Path(jpi_path).exists():
-        print(f"[error] JPI file not found: {jpi_path}", file=sys.stderr)
-        return 1
 
     uc        = json.loads(Path(args.uc).read_text("utf-8"))
     installed = load_installed_versions(args.plugins)
 
+    if args.batch:
+        return main_batch(args, uc, installed)
+
+    # --- Single-plugin mode ---
+    if not args.jpi or not args.plugin_id or not args.version or not args.output:
+        print("[error] --jpi, --plugin-id, --version, and --output are required in single-plugin mode", file=sys.stderr)
+        return 1
+    if not Path(args.jpi).exists():
+        print(f"[error] JPI file not found: {args.jpi}", file=sys.stderr)
+        return 1
+
     bom = generate_sbom(
-        jpi_path=jpi_path,
+        jpi_path=args.jpi,
         plugin_id=args.plugin_id,
         plugin_version=args.version,
         uc=uc,
@@ -266,6 +278,69 @@ def main(argv: list[str]) -> int:
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(bom, indent=2) + "\n", "utf-8")
     return 0
+
+
+def main_batch(args, uc: dict, installed: dict[str, str]) -> int:
+    """Process every plugin in installed{} as a single Python invocation."""
+    import time
+    plugins_dir = Path(args.plugins_dir)
+    output_dir  = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    generated = skipped = failed = 0
+    t_start = time.monotonic()
+
+    # Print a diagnostic header
+    print(f"\n{'='*70}")
+    print(f"Batch SBOM generation: {len(installed)} plugins → {output_dir}/")
+    print(f"{'='*70}")
+
+    first_sample_printed = False
+
+    for plugin_id, plugin_version in sorted(installed.items()):
+        jpi_path = plugins_dir / f"{plugin_id}.jpi"
+        if not jpi_path.exists():
+            jpi_path = plugins_dir / f"{plugin_id}.hpi"
+        if not jpi_path.exists():
+            print(f"  [skip] {plugin_id}: no .jpi/.hpi in {plugins_dir}")
+            skipped += 1
+            continue
+
+        bom = generate_sbom(
+            jpi_path=str(jpi_path),
+            plugin_id=plugin_id,
+            plugin_version=plugin_version,
+            uc=uc,
+            installed=installed,
+        )
+        if not bom:
+            print(f"  [FAIL] {plugin_id}: generate_sbom returned empty", file=sys.stderr)
+            failed += 1
+            continue
+
+        out_file = output_dir / f"{plugin_id}.json"
+        out_file.write_text(json.dumps(bom, indent=2) + "\n", "utf-8")
+        generated += 1
+
+        # Print first SBOM's component PURLs so we can verify the format
+        if not first_sample_printed and bom.get("components"):
+            first_sample_printed = True
+            root = bom["metadata"]["component"]
+            print(f"\n--- SAMPLE SBOM: {plugin_id} ---")
+            print(f"  Root PURL:  {root.get('purl')}")
+            print(f"  Root CPE:   {root.get('cpe')}")
+            print(f"  Components ({len(bom['components'])}):")
+            for c in bom["components"][:10]:
+                print(f"    {c.get('purl')}")
+            if len(bom["components"]) > 10:
+                print(f"    ... ({len(bom['components']) - 10} more)")
+            print()
+
+    elapsed = time.monotonic() - t_start
+    print(f"\n{'='*70}")
+    print(f"Done in {elapsed:.1f}s — generated: {generated}, skipped: {skipped}, failed: {failed}")
+    print(f"{'='*70}\n")
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":

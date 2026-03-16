@@ -63,48 +63,39 @@ pipeline {
           # Fetch and strip the JSONP wrapper Jenkins adds around update-center.json
           curl -fsSL https://updates.jenkins.io/current/update-center.json \
             | sed '1d;$d' > update-center.json
-          echo "Fetched Update Center metadata"
 
-          GENERATED=0
-          FAILED=0
-          SKIPPED=0
+          # Single Python invocation processes all plugins.
+          # Prints a sample SBOM component list so we can verify the PURLs.
+          python3 resources/scripts/generate_plugin_sbom.py \
+            --batch \
+            --plugins-dir /var/jenkins_home/plugins \
+            --output-dir  sboms \
+            --uc          update-center.json \
+            --plugins     plugins-list.txt
 
-          while IFS= read -r line; do
-            plugin_id="${line%% *}"
-            [ -n "$plugin_id" ] || continue
-
-            # Extract the version: last whitespace-delimited token that isn't (pinned) etc.
-            # Handles all Jenkins versioning formats: 5.2.1  13.21.0-945  635.v34b_48e979c86
-            version=$(echo "$line" | tr -s ' \t' '\n' | grep -v '^(' | tail -1 || true)
-            if [ -z "$version" ]; then
-              echo "WARNING: cannot parse version for '${plugin_id}', skipping"
-              SKIPPED=$((SKIPPED + 1))
-              continue
-            fi
-
-            jpi_file="/var/jenkins_home/plugins/${plugin_id}.jpi"
-            [ -f "$jpi_file" ] || jpi_file="/var/jenkins_home/plugins/${plugin_id}.hpi"
-            if [ ! -f "$jpi_file" ]; then
-              echo "WARNING: no .jpi/.hpi found for '${plugin_id}' at /var/jenkins_home/plugins/, skipping"
-              SKIPPED=$((SKIPPED + 1))
-              continue
-            fi
-
-            if python3 resources/scripts/generate_plugin_sbom.py \
-                --jpi       "$jpi_file" \
-                --plugin-id "$plugin_id" \
-                --version   "$version" \
-                --uc        update-center.json \
-                --plugins   plugins-list.txt \
-                --output    "sboms/${plugin_id}.json"; then
-              GENERATED=$((GENERATED + 1))
-            else
-              echo "WARNING: SBOM generation failed for '${plugin_id}'"
-              FAILED=$((FAILED + 1))
-            fi
-          done < plugins-list.txt
-
-          echo "Done — generated: ${GENERATED}, skipped: ${SKIPPED}, failed: ${FAILED}"
+          # --- Diagnostic: show all PURLs from the git plugin SBOM ---
+          # git bundles jgit, sshd, bouncycastle etc — known CVE targets.
+          # If this shows 0 components there is a ZIP reading bug.
+          for probe in git jackson2-api docker-commons kubernetes; do
+            f="sboms/${probe}.json"
+            [ -f "$f" ] || continue
+            echo ""
+            echo "=== PROBE: ${probe} ==="
+            python3 -c "
+import json, sys
+bom = json.load(open('$f'))
+root = bom['metadata']['component']
+print(f'  root purl : {root.get(\"purl\")}')
+print(f'  root cpe  : {root.get(\"cpe\")}')
+comps = bom.get('components', [])
+print(f'  components: {len(comps)}')
+for c in comps[:15]:
+    print(f'    {c.get(\"purl\")}')
+if len(comps) > 15:
+    print(f'    ... ({len(comps)-15} more)')
+"
+            break  # only need one probe
+          done
         '''
         archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
       }
