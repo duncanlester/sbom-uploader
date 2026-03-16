@@ -95,6 +95,10 @@ pipeline {
           docker volume create jenkins-plugin-extracted
           docker volume create jenkins-plugin-sboms
 
+          # Make volumes world-writable so non-root container users can write to them
+          docker run --rm -v jenkins-plugin-extracted:/extracted alpine chmod 777 /extracted
+          docker run --rm -v jenkins-plugin-sboms:/sboms       alpine chmod 777 /sboms
+
           # Step A: extract WEB-INF/lib/*.jar from every .jpi into its own subdir
           docker run --rm \
             -v jenkins-plugin-output:/plugins:ro \
