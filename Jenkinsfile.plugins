@@ -10,9 +10,14 @@ pipeline {
       description: 'Jenkins base URL of the instance to scan'
     )
     string(
-      name: 'TARGET_JENKINS_CREDENTIALS_ID',
-      defaultValue: 'target-jenkins-api-token',
-      description: 'Credentials ID (username + API token) for the target Jenkins instance'
+      name: 'TARGET_JENKINS_USERNAME',
+      defaultValue: 'admin',
+      description: 'Username for the target Jenkins instance — leave blank if security is disabled'
+    )
+    password(
+      name: 'TARGET_JENKINS_PASSWORD',
+      defaultValue: 'admin',
+      description: 'Password for the target Jenkins instance — leave blank if security is disabled'
     )
   }
   environment {
@@ -26,8 +31,9 @@ pipeline {
       steps {
         script {
           listJenkinsPlugins(
-            jenkinsUrl:    params.TARGET_JENKINS_URL,
-            credentialsId: params.TARGET_JENKINS_CREDENTIALS_ID
+            jenkinsUrl: params.TARGET_JENKINS_URL,
+            username:   params.TARGET_JENKINS_USERNAME,
+            password:   params.TARGET_JENKINS_PASSWORD
           )
         }
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
