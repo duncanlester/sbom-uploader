@@ -23,7 +23,7 @@ def call(Map config) {
     withCredentials([string(credentialsId: apiKeyCredId, variable: 'DT_API_KEY')]) {
         sh """
             echo "Uploading SBOM to Dependency Track..."
-            curl -s -X POST "${apiUrl}/api/v1/bom" \
+            curl -X POST "${apiUrl}/api/v1/bom" \
                 -H "X-Api-Key: \$DT_API_KEY" \
                 -F "projectName=${projectName}" \
                 -F "projectVersion=${projectVersion}" \
