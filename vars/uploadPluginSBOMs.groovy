@@ -11,9 +11,10 @@
  * @param sbomGlob     Glob for SBOM files to upload (default: 'sboms/*.json')
  */
 def call(Map config = [:]) {
-    def pluginsFile    = config.pluginsFile    ?: 'plugins-list.txt'
-    def sbomGlob       = config.sbomGlob       ?: 'sboms/*.json'
+    def pluginsFile = config.pluginsFile ?: 'plugins-list.txt'
+    def sbomGlob = config.sbomGlob ?: 'sboms/*.json'
     def jenkinsVersion = config.jenkinsVersion ?: 'unknown'
+    def apiUrl = config.apiUrl ?: env.DEPENDENCY_TRACK_API_URL
 
     def pluginVersions = [:]
     readFile(pluginsFile).readLines().each { line ->
@@ -37,7 +38,8 @@ def call(Map config = [:]) {
             projectName:    "jenkins-plugin-${pluginId}",
             projectVersion: version,
             parentName:     'jenkins-plugins',
-            parentVersion:  jenkinsVersion
+            parentVersion:  jenkinsVersion,
+            apiUrl:         apiUrl
         )
     }
 }

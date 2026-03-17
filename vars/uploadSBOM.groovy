@@ -13,9 +13,9 @@ def call(Map config) {
     def sbomFile = config.sbomFile
     def projectName = config.projectName
     def projectVersion = config.projectVersion
-    def apiUrl       = config.apiUrl       ?: env.DEPENDENCY_TRACK_API_URL
-    def apiKeyCredId  = config.apiKeyCredId  ?: 'dependency-track-api-key'
-    def parentName    = config.parentName    ?: ''
+    def apiUrl = config.apiUrl ?: env.DEPENDENCY_TRACK_API_URL
+    def apiKeyCredId = config.apiKeyCredId?: 'dependency-track-api-key'
+    def parentName = config.parentName ?: ''
     def parentVersion = config.parentVersion ?: ''
 
     def parentFields = parentName ? "-F \"parentName=${parentName}\" -F \"parentVersion=${parentVersion}\"" : ''

@@ -9,6 +9,11 @@ pipeline {
       defaultValue: 'http://localhost:8080',
       description: 'Jenkins base URL to query with CLI for the installed plugin list'
     )
+    string(
+      name: 'DEPENDENCY_TRACK_API_URL',
+      defaultValue: 'http://localhost:8081',
+      description: 'Dependency-Track API base URL'
+    )
   }
   environment {
     DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
@@ -50,7 +55,7 @@ pipeline {
       steps {
         script {
           def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
-          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion)
+          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion, apiUrl: params.DEPENDENCY_TRACK_API_URL)
         }
       }
     }
