@@ -7,7 +7,12 @@ pipeline {
     string(
       name: 'TARGET_JENKINS_URL',
       defaultValue: 'http://localhost:8080',
-      description: 'Jenkins base URL to query with CLI for the installed plugin list'
+      description: 'Jenkins base URL of the instance to scan'
+    )
+    string(
+      name: 'TARGET_JENKINS_CREDENTIALS_ID',
+      defaultValue: 'target-jenkins-api-token',
+      description: 'Credentials ID (username + API token) for the target Jenkins instance'
     )
   }
   environment {
@@ -19,14 +24,12 @@ pipeline {
 
     stage('List installed plugins') {
       steps {
-        sh '''
-          set -euo pipefail
-          curl -fsSL "${TARGET_JENKINS_URL}/jnlpJars/jenkins-cli.jar" -o jenkins-cli.jar
-          java -jar jenkins-cli.jar -s "${TARGET_JENKINS_URL}" list-plugins > plugins-list.txt
-          echo "Found $(wc -l < plugins-list.txt | tr -d ' ') installed plugins"
-          curl -sI "${TARGET_JENKINS_URL}/" | grep -i 'X-Jenkins:' | awk '{print $2}' | tr -d '\r' > jenkins-version.txt
-          echo "Jenkins version: $(cat jenkins-version.txt)"
-        '''
+        script {
+          listJenkinsPlugins(
+            jenkinsUrl:    params.TARGET_JENKINS_URL,
+            credentialsId: params.TARGET_JENKINS_CREDENTIALS_ID
+          )
+        }
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
     }
@@ -35,11 +38,16 @@ pipeline {
       steps {
         sh '''
           set -euo pipefail
-          mkdir -p sboms
+          mkdir -p sboms plugins-cache
           while IFS= read -r line; do
             plugin_id="${line%% *}"
-            jpi="/var/jenkins_home/plugins/${plugin_id}.jpi"
-            [ -f "$jpi" ] || continue
+            version="${line##* }"
+            jpi="plugins-cache/${plugin_id}.jpi"
+            if [ ! -f "$jpi" ]; then
+              echo "Downloading ${plugin_id} ${version}..."
+              curl -fsSL "https://updates.jenkins.io/download/plugins/${plugin_id}/${version}/${plugin_id}.hpi" \
+                -o "$jpi" || { echo "WARNING: skipping ${plugin_id} (not on update center)"; continue; }
+            fi
             syft "$jpi" -o cyclonedx-json > "sboms/${plugin_id}.json"
           done < plugins-list.txt
         '''
