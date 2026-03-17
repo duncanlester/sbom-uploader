@@ -33,6 +33,9 @@ def main(project_name, project_version):
     with open("findings.json") as f:
         findings = json.load(f)
 
+    # Detect if this is a grouped (collection) report
+    has_plugin_col = any(f.get("sourceName") for f in findings)
+
     class VulnPDF(FPDF):
         def header(self):
             # Gradient-like header with dark blue
@@ -185,10 +188,17 @@ def main(project_name, project_version):
         pdf.set_fill_color(*sev_color)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(50, 7, "Vulnerability ID", 1, 0, "C", True)
-        pdf.cell(75, 7, "Component", 1, 0, "C", True)
-        pdf.cell(25, 7, "Version", 1, 0, "C", True)
-        pdf.cell(30, 7, "CVSS Score", 1, 1, "C", True)
+        if has_plugin_col:
+            pdf.cell(38, 7, "Vulnerability ID", 1, 0, "C", True)
+            pdf.cell(42, 7, "Project", 1, 0, "C", True)
+            pdf.cell(42, 7, "Component", 1, 0, "C", True)
+            pdf.cell(20, 7, "Version", 1, 0, "C", True)
+            pdf.cell(28, 7, "CVSS Score", 1, 1, "C", True)
+        else:
+            pdf.cell(50, 7, "Vulnerability ID", 1, 0, "C", True)
+            pdf.cell(75, 7, "Component", 1, 0, "C", True)
+            pdf.cell(25, 7, "Version", 1, 0, "C", True)
+            pdf.cell(30, 7, "CVSS Score", 1, 1, "C", True)
 
         # Table rows
         pdf.set_font("Helvetica", "", 8)
@@ -197,22 +207,35 @@ def main(project_name, project_version):
             v = vuln.get("vulnerability", {})
             c = vuln.get("component", {})
             vuln_id = v.get("vulnId", "N/A")
-            component = c.get("name", "N/A")[:35]
-            version = c.get("version", "N/A")[:12]
+            plugin = sanitize_text(vuln.get("sourceName", "")[:22])
+            component = c.get("name", "N/A")[:22 if has_plugin_col else 35]
+            version = c.get("version", "N/A")[:10]
             score = v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A"
 
             # Link to detail section if available
-            if vuln_id in vuln_links:
-                pdf.set_text_color(59, 130, 246)
-                pdf.cell(50, 6, vuln_id, 1, 0, "L", False, vuln_links[vuln_id])
-            else:
+            if has_plugin_col:
+                if vuln_id in vuln_links:
+                    pdf.set_text_color(59, 130, 246)
+                    pdf.cell(38, 6, vuln_id, 1, 0, "L", False, vuln_links[vuln_id])
+                else:
+                    pdf.set_text_color(51, 65, 85)
+                    pdf.cell(38, 6, vuln_id, 1, 0, "L")
                 pdf.set_text_color(51, 65, 85)
-                pdf.cell(50, 6, vuln_id, 1, 0, "L")
-
-            pdf.set_text_color(51, 65, 85)
-            pdf.cell(75, 6, sanitize_text(component), 1, 0, "L")
-            pdf.cell(25, 6, sanitize_text(str(version)), 1, 0, "C")
-            pdf.cell(30, 6, sanitize_text(str(score)), 1, 1, "C")
+                pdf.cell(42, 6, plugin, 1, 0, "L")
+                pdf.cell(42, 6, sanitize_text(component), 1, 0, "L")
+                pdf.cell(20, 6, sanitize_text(str(version)), 1, 0, "C")
+                pdf.cell(28, 6, sanitize_text(str(score)), 1, 1, "C")
+            else:
+                if vuln_id in vuln_links:
+                    pdf.set_text_color(59, 130, 246)
+                    pdf.cell(50, 6, vuln_id, 1, 0, "L", False, vuln_links[vuln_id])
+                else:
+                    pdf.set_text_color(51, 65, 85)
+                    pdf.cell(50, 6, vuln_id, 1, 0, "L")
+                pdf.set_text_color(51, 65, 85)
+                pdf.cell(75, 6, sanitize_text(component), 1, 0, "L")
+                pdf.cell(25, 6, sanitize_text(str(version)), 1, 0, "C")
+                pdf.cell(30, 6, sanitize_text(str(score)), 1, 1, "C")
 
         pdf.ln(8)
 
@@ -225,7 +248,7 @@ def main(project_name, project_version):
 
     # Show detailed info for all vulnerabilities
     if detailed_vulns:
-        for vuln in detailed_vulns[:50]:
+        for vuln in detailed_vulns:
             v = vuln.get("vulnerability", {})
             c = vuln.get("component", {})
 
@@ -249,10 +272,12 @@ def main(project_name, project_version):
             pdf.set_text_color(*sev_color)
             pdf.cell(0, 8, vuln_id, ln=True)
 
-            # Component and score
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(100, 116, 139)
-            pdf.cell(0, 5, sanitize_text(f"{component} v{version} | CVSS: {score} | {severity}"), ln=True)
+            component_info = f"{component} v{version} | CVSS: {score} | {severity}"
+            if vuln.get('sourceName'):
+                component_info += f" | Project: {vuln['sourceName']}"
+            pdf.cell(0, 5, sanitize_text(component_info), ln=True)
             pdf.ln(2)
 
             # Description

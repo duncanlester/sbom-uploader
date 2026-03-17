@@ -28,20 +28,11 @@ def call(Map config = [:]) {
     def sbomFiles = findFiles(glob: sbomGlob)
     echo "Uploading ${sbomFiles.size()} SBOMs to Dependency-Track..."
 
-    // Create/update the collection parent project and capture its UUID
-    def parentUUID = ''
-    withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
-        def response = sh(script: """
-            curl -s -X PUT "${apiUrl}/api/v1/project" \\
-                -H "X-Api-Key: \$DT_API_KEY" \\
-                -H "Content-Type: application/json" \\
-                -d '{"name":"jenkins-plugins","version":"${jenkinsVersion}","classifier":"APPLICATION","active":true,"collectionLogic":"AGGREGATE_DIRECT_CHILDREN"}'
-        """, returnStdout: true).trim()
-        echo "Parent project response: ${response}"
-        def json = readJSON text: response
-        parentUUID = json.uuid
-        echo "Parent project UUID: ${parentUUID}"
-    }
+    def parentUUID = createDTCollectionProject(
+        name:    'jenkins-plugins',
+        version: jenkinsVersion,
+        apiUrl:  apiUrl
+    )
 
     sbomFiles.each { sbom ->
         def pluginId = sbom.name.replaceAll(/\.json$/, '')
