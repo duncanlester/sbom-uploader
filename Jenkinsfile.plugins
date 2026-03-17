@@ -12,7 +12,7 @@ pipeline {
   }
   environment {
     DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
-    DEPENDENCY_TRACK_API_URL = 'http://localhost:8081'
+    DEPENDENCY_TRACK_API_URL = 'http://dtrack-apiserver:8080'
   }
 
   stages {
