@@ -28,6 +28,16 @@ def call(Map config = [:]) {
     def sbomFiles = findFiles(glob: sbomGlob)
     echo "Uploading ${sbomFiles.size()} SBOMs to Dependency-Track..."
 
+    // Ensure parent project exists before uploading children
+    withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
+        sh """
+            curl -X PUT "${apiUrl}/api/v1/project" \
+                -H "X-Api-Key: \$DT_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d '{"name":"jenkins-plugins","version":"${jenkinsVersion}","classifier":"APPLICATION","active":true}'
+        """
+    }
+
     sbomFiles.each { sbom ->
         def pluginId = sbom.name.replaceAll(/\.json$/, '')
         def version  = pluginVersions.get(pluginId, 'unknown')
