@@ -20,7 +20,7 @@ def call(Map config) {
 
     withCredentials([string(credentialsId: apiKeyCredId, variable: 'DT_API_KEY')]) {
 
-        // Step 1: create/upsert the child project with its parent, get its UUID
+        // Step 1: create or look up the child project to get its UUID
         def parentJson = parentUUID ? """, \\"parent\\": {\\"uuid\\": \\"${parentUUID}\\"}""" : ''
         def projectResponse = sh(script: """
             curl -s -X PUT "${apiUrl}/api/v1/project" \\
@@ -33,7 +33,7 @@ def call(Map config) {
         if (projectResponse.startsWith('{')) {
             projectUUID = readJSON(text: projectResponse).uuid
         } else {
-            // Project already exists — look it up
+            // Project already exists and PUT did not return JSON — look it up by name+version
             def lookup = sh(script: """
                 curl -s "${apiUrl}/api/v1/project/lookup?name=${URLEncoder.encode(projectName, 'UTF-8')}&version=${URLEncoder.encode(projectVersion, 'UTF-8')}" \\
                     -H "X-Api-Key: \$DT_API_KEY"
@@ -41,9 +41,19 @@ def call(Map config) {
             projectUUID = readJSON(text: lookup).uuid
         }
 
+        // Step 2: PATCH the project to ensure the parent is set (PUT only sets parent on creation)
+        if (parentUUID) {
+            sh """
+                curl -s -X PATCH "${apiUrl}/api/v1/project/${projectUUID}" \\
+                    -H "X-Api-Key: \$DT_API_KEY" \\
+                    -H "Content-Type: application/json" \\
+                    -d "{\\"parent\\": {\\"uuid\\": \\"${parentUUID}\\"}}"
+            """
+        }
+
         echo "  Uploading SBOM for ${projectName} (UUID: ${projectUUID})..."
 
-        // Step 2: upload the BOM to the specific project UUID
+        // Step 3: upload the BOM to the specific project UUID
         sh """
             curl -s -X POST "${apiUrl}/api/v1/bom" \\
                 -H "X-Api-Key: \$DT_API_KEY" \\
