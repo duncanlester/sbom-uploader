@@ -41,21 +41,26 @@ pipeline {
       }
     }
 
-    stage('Generate per-plugin SBOMs') {
-      steps {
-        script {
-          writeFile file: 'plugins_to_sboms.py', text: libraryResource('scripts/plugins_to_sboms.py')
-        }
-        sh 'python3 plugins_to_sboms.py plugins-list.txt sboms'
-        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: false
-      }
-    }
-
-    stage('Upload SBOMs to Dependency-Track') {
+    stage('Generate combined SBOM') {
       steps {
         script {
           def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
-          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion, scanner: 'pom')
+          writeFile file: 'plugins_to_sboms.py', text: libraryResource('scripts/plugins_to_sboms.py')
+          sh "python3 plugins_to_sboms.py plugins-list.txt sboms/jenkins-plugins.json '${jenkinsVersion}'"
+        }
+        archiveArtifacts artifacts: 'sboms/jenkins-plugins.json', fingerprint: true
+      }
+    }
+
+    stage('Upload SBOM to Dependency-Track') {
+      steps {
+        script {
+          def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
+          uploadSBOM(
+            sbomFile:       'sboms/jenkins-plugins.json',
+            projectName:    'jenkins-plugins-purl',
+            projectVersion: jenkinsVersion
+          )
         }
       }
     }
