@@ -19,11 +19,6 @@ pipeline {
       defaultValue: 'admin',
       description: 'Password for the target Jenkins instance — leave blank if security is disabled'
     )
-    string(
-      name: 'CDXGEN_VERSION',
-      defaultValue: 'latest',
-      description: 'cdxgen Docker image tag (e.g. latest, v11.5.6)'
-    )
   }
   environment {
     DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
@@ -44,6 +39,38 @@ pipeline {
         archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
       }
     }
+
+    stage('Generate per-plugin SBOMs') {
+      steps {
+        script {
+          writeFile file: 'plugins_to_sboms.py', text: libraryResource('scripts/plugins_to_sboms.py')
+        }
+        sh '''
+          docker run --rm \
+            -v "${WORKSPACE}:${WORKSPACE}" \
+            -w "${WORKSPACE}" \
+            python:3.11-slim \
+            python3 plugins_to_sboms.py plugins-list.txt sboms
+        '''
+        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: false
+      }
+    }
+
+    stage('Upload SBOMs to Dependency-Track') {
+      steps {
+        script {
+          def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
+          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion, scanner: 'cdxgen')
+        }
+      }
+    }
+  }
+  post {
+    always {
+      deleteDir()
+    }
+  }
+}
 
     stage('Generate per-plugin SBOMs (cdxgen)') {
       steps {
