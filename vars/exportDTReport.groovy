@@ -59,11 +59,17 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
             error "Failed to fetch findings from Dependency Track."
         }
 
+        // Stamp each finding with projectUuid so the Python script can call /api/v1/analysis
+        findings.each { f -> f.projectUuid = projectUuid }
+        writeJSON file: 'findings.json', json: findings
+
         // Generate PDF using external Python script
         sh """
             docker run --rm --network=host \
                 -v ${env.WORKSPACE}:/workspace \
                 -w /workspace \
+                -e DT_API_URL='${dtUrl}' \
+                -e DT_API_KEY="\$DT_API_KEY" \
                 python:3.11-slim \
                 bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
         """

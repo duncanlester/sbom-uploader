@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import json
 import sys
+import os
+import urllib.request
+import urllib.parse
 from fpdf import FPDF
 from datetime import datetime
 
@@ -26,34 +29,58 @@ def sanitize_text(text):
     # Remove any remaining non-Latin-1 characters
     return text.encode('latin-1', errors='ignore').decode('latin-1')
 
+def fetch_analysis(api_url, api_key, project_uuid, component_uuid, vuln_uuid):
+    """Fetch full analysis record from Dependency-Track for a single finding."""
+    if not all([api_url, api_key, project_uuid, component_uuid, vuln_uuid]):
+        return {}
+    try:
+        params = urllib.parse.urlencode({
+            'project':       project_uuid,
+            'component':     component_uuid,
+            'vulnerability': vuln_uuid,
+        })
+        req = urllib.request.Request(
+            f"{api_url}/api/v1/analysis?{params}",
+            headers={'X-Api-Key': api_key, 'accept': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return {}
+
 def main(project_name, project_version):
-    # Load data
+    api_url = os.environ.get('DT_API_URL', '')
+    api_key = os.environ.get('DT_API_KEY', '')
+
     with open("metrics.json") as f:
         metrics = json.load(f)
     with open("findings.json") as f:
         findings = json.load(f)
 
-    # Detect if this is a grouped (collection) report
-    has_plugin_col = any(f.get("sourceName") for f in findings)
+    # Enrich each finding with its full analysis record
+    for finding in findings:
+        finding['_analysis'] = fetch_analysis(
+            api_url, api_key,
+            finding.get('projectUuid', ''),
+            finding.get('component', {}).get('uuid', ''),
+            finding.get('vulnerability', {}).get('uuid', ''),
+        )
+
+    has_source_col = any(f.get("sourceName") for f in findings)
+
+    PAGE_W = 297  # A4 landscape width in mm
 
     class VulnPDF(FPDF):
         def header(self):
-            # Gradient-like header with dark blue
-            self.set_fill_color(30, 58, 138)  # Dark blue
-            self.rect(0, 0, 210, 45, 'F')
-
-            # Title
+            self.set_fill_color(30, 58, 138)
+            self.rect(0, 0, PAGE_W, 45, 'F')
             self.set_text_color(255, 255, 255)
             self.set_font("Helvetica", "B", 32)
             self.set_y(15)
             self.cell(0, 12, "Security Analysis Report", align="C", ln=True)
-
-            # Subtitle
             self.set_font("Helvetica", "", 11)
             self.set_text_color(203, 213, 225)
             self.cell(0, 8, f"{project_name} {project_version}", align="C")
-
-            # Position cursor below header
             self.set_y(50)
 
         def footer(self):
@@ -61,17 +88,15 @@ def main(project_name, project_version):
             self.set_font("Helvetica", "I", 8)
             self.set_text_color(148, 163, 184)
             self.set_draw_color(226, 232, 240)
-            self.line(10, self.get_y() - 3, 200, self.get_y() - 3)
+            self.line(10, self.get_y() - 3, PAGE_W - 10, self.get_y() - 3)
             self.cell(0, 10, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} | Page {self.page_no()}", align="C")
 
-    # Create PDF
-    pdf = VulnPDF()
+    # Create PDF — landscape A4
+    pdf = VulnPDF(orientation='L', format='A4')
     pdf.set_top_margin(50)
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=25)
 
-    # Metrics cards
-    total = metrics.get("vulnerabilities", 0)
     critical = metrics.get("critical", 0)
     high = metrics.get("high", 0)
     medium = metrics.get("medium", 0)
@@ -93,8 +118,8 @@ def main(project_name, project_version):
     pdf.cell(0, 10, "Vulnerabilities", ln=True)
     pdf.ln(5)
 
-    # Metrics grid - 4 boxes in a row
-    box_width = 45
+    # Metrics grid — 4 boxes in a row
+    box_width = 60
     box_height = 28
     start_x = 12
 
@@ -109,22 +134,14 @@ def main(project_name, project_version):
 
     for idx, (label, count, color) in enumerate(severity_metrics):
         x_pos = start_x + (idx * (box_width + 2))
-
-        # Box background
         pdf.set_fill_color(248, 250, 252)
         pdf.rect(x_pos, base_y, box_width, box_height, 'F')
-
-        # Color bar on left
         pdf.set_fill_color(*color)
         pdf.rect(x_pos, base_y, 3, box_height, 'F')
-
-        # Count (large)
         pdf.set_xy(x_pos + 5, base_y + 5)
         pdf.set_font("Helvetica", "B", 24)
         pdf.set_text_color(*color)
         pdf.cell(box_width - 10, 10, str(count), align="C")
-
-        # Label (small)
         pdf.set_xy(x_pos + 5, base_y + 14)
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(71, 85, 105)
@@ -132,53 +149,69 @@ def main(project_name, project_version):
 
     pdf.set_y(base_y + box_height + 10)
 
-    # Group vulnerabilities by severity
+    # Group and sort findings by severity then CVSS
     vulns_by_severity = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": []}
     for vuln in findings:
-        severity = vuln.get("vulnerability", {}).get("severity", "")
-        if severity in vulns_by_severity:
-            vulns_by_severity[severity].append(vuln)
+        sev = vuln.get("vulnerability", {}).get("severity", "")
+        if sev in vulns_by_severity:
+            vulns_by_severity[sev].append(vuln)
 
-    # Sort each group by CVSS score
-    for severity in vulns_by_severity:
-        vulns_by_severity[severity] = sorted(
-            vulns_by_severity[severity],
-            key=lambda x: x.get("vulnerability", {}).get("cvssV3BaseScore", 0) or x.get("vulnerability", {}).get("cvssV2BaseScore", 0) or 0,
+    for sev in vulns_by_severity:
+        vulns_by_severity[sev].sort(
+            key=lambda x: (
+                x.get("vulnerability", {}).get("cvssV3BaseScore") or
+                x.get("vulnerability", {}).get("cvssV2BaseScore") or 0
+            ),
             reverse=True
         )
 
-    # Vulnerability summary tables by severity
     severity_configs = [
         ("CRITICAL", (220, 38, 38)),
-        ("HIGH", (234, 88, 12)),
-        ("MEDIUM", (250, 204, 21)),
-        ("LOW", (34, 197, 94))
+        ("HIGH",     (234, 88, 12)),
+        ("MEDIUM",   (250, 204, 21)),
+        ("LOW",      (34, 197, 94)),
     ]
 
-    # Collect all vulnerabilities to show in detailed section (up to 50)
-    detailed_vulns = vulns_by_severity["CRITICAL"] + vulns_by_severity["HIGH"] + vulns_by_severity["MEDIUM"] + vulns_by_severity["LOW"]
-    detailed_vulns = detailed_vulns[:50]
+    # Column definitions — usable width = 297 - 10 - 10 = 277 mm
+    # Without Project column (10 cols): 38+33+18+15+28+35+28+52+18+12 = 277
+    # With Project column (11 cols):    35+26+25+16+13+25+32+25+47+18+15 = 277
+    if has_source_col:
+        cols = [
+            ("Vulnerability ID", 35),
+            ("Project",          26),
+            ("Component",        25),
+            ("Version",          16),
+            ("CVSS",             13),
+            ("Analysis State",   25),
+            ("Justification",    32),
+            ("Response",         25),
+            ("Comments",         47),
+            ("Time",             18),
+            ("Commenter",        15),
+        ]
+    else:
+        cols = [
+            ("Vulnerability ID", 38),
+            ("Component",        33),
+            ("Version",          18),
+            ("CVSS",             15),
+            ("Analysis State",   28),
+            ("Justification",    35),
+            ("Response",         28),
+            ("Comments",         52),
+            ("Time",             18),
+            ("Commenter",        12),
+        ]
 
-    # Create set of vuln IDs that will have detail pages
-    detailed_vuln_ids = set()
-    for vuln in detailed_vulns:
-        vuln_id = vuln.get("vulnerability", {}).get("vulnId", "N/A")
-        detailed_vuln_ids.add(vuln_id)
+    def trunc(text, col_w):
+        max_chars = max(4, int(col_w / 1.9))
+        return text[:max_chars] + ('~' if len(text) > max_chars else '')
 
-    # Create link map for all detailed vulns
-    vuln_links = {}
-    for vuln in detailed_vulns:
-        vuln_id = vuln.get("vulnerability", {}).get("vulnId", "N/A")
-        vuln_links[vuln_id] = pdf.add_link()
-
-    # Render tables - one per row
     for sev_label, sev_color in severity_configs:
-        # Only show vulnerabilities that have detail pages
-        sev_vulns = [v for v in vulns_by_severity[sev_label] if v.get("vulnerability", {}).get("vulnId", "N/A") in detailed_vuln_ids]
+        sev_vulns = vulns_by_severity[sev_label]
         if not sev_vulns:
             continue
 
-        # Section header
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_text_color(*sev_color)
         pdf.cell(0, 8, f"{sev_label} ({len(sev_vulns)})", ln=True)
@@ -187,145 +220,126 @@ def main(project_name, project_version):
         # Table header
         pdf.set_fill_color(*sev_color)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Helvetica", "B", 9)
-        if has_plugin_col:
-            pdf.cell(38, 7, "Vulnerability ID", 1, 0, "C", True)
-            pdf.cell(42, 7, "Project", 1, 0, "C", True)
-            pdf.cell(42, 7, "Component", 1, 0, "C", True)
-            pdf.cell(20, 7, "Version", 1, 0, "C", True)
-            pdf.cell(28, 7, "CVSS Score", 1, 1, "C", True)
-        else:
-            pdf.cell(50, 7, "Vulnerability ID", 1, 0, "C", True)
-            pdf.cell(75, 7, "Component", 1, 0, "C", True)
-            pdf.cell(25, 7, "Version", 1, 0, "C", True)
-            pdf.cell(30, 7, "CVSS Score", 1, 1, "C", True)
+        pdf.set_font("Helvetica", "B", 7)
+        for i, (col_name, col_w) in enumerate(cols):
+            pdf.cell(col_w, 7, col_name, 1, 1 if i == len(cols) - 1 else 0, "C", True)
 
         # Table rows
-        pdf.set_font("Helvetica", "", 8)
+        pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(51, 65, 85)
         for vuln in sev_vulns:
             v = vuln.get("vulnerability", {})
             c = vuln.get("component", {})
-            vuln_id = v.get("vulnId", "N/A")
-            plugin = sanitize_text(vuln.get("sourceName", "")[:22])
-            component = c.get("name", "N/A")[:22 if has_plugin_col else 35]
-            version = c.get("version", "N/A")[:10]
-            score = v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A"
+            a = vuln.get("_analysis", {})
 
-            # Link to detail section if available
-            if has_plugin_col:
-                if vuln_id in vuln_links:
-                    pdf.set_text_color(59, 130, 246)
-                    pdf.cell(38, 6, vuln_id, 1, 0, "L", False, vuln_links[vuln_id])
-                else:
-                    pdf.set_text_color(51, 65, 85)
-                    pdf.cell(38, 6, vuln_id, 1, 0, "L")
-                pdf.set_text_color(51, 65, 85)
-                pdf.cell(42, 6, plugin, 1, 0, "L")
-                pdf.cell(42, 6, sanitize_text(component), 1, 0, "L")
-                pdf.cell(20, 6, sanitize_text(str(version)), 1, 0, "C")
-                pdf.cell(28, 6, sanitize_text(str(score)), 1, 1, "C")
+            vuln_id  = sanitize_text(v.get("vulnId", "N/A"))
+            comp     = sanitize_text(c.get("name", "N/A"))
+            version  = sanitize_text(str(c.get("version") or "N/A"))
+            score    = str(v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A")
+            state    = sanitize_text((a.get("analysisState")         or "").replace("_", " "))
+            justif   = sanitize_text((a.get("analysisJustification") or "").replace("_", " "))
+            response = sanitize_text((a.get("analysisResponse")      or "").replace("_", " "))
+
+            last_comment = (a.get("analysisComments") or [{}])[-1]
+            comment_text = sanitize_text(last_comment.get("comment", ""))
+            raw_ts       = last_comment.get("timestamp", "")
+            comment_time = raw_ts[:16].replace("T", " ") if raw_ts else ""
+            commenter    = sanitize_text(last_comment.get("commenter", ""))
+
+            if has_source_col:
+                row_vals = [
+                    vuln_id, sanitize_text(vuln.get("sourceName", "")),
+                    comp, version, score,
+                    state, justif, response,
+                    comment_text, comment_time, commenter,
+                ]
             else:
-                if vuln_id in vuln_links:
-                    pdf.set_text_color(59, 130, 246)
-                    pdf.cell(50, 6, vuln_id, 1, 0, "L", False, vuln_links[vuln_id])
-                else:
-                    pdf.set_text_color(51, 65, 85)
-                    pdf.cell(50, 6, vuln_id, 1, 0, "L")
-                pdf.set_text_color(51, 65, 85)
-                pdf.cell(75, 6, sanitize_text(component), 1, 0, "L")
-                pdf.cell(25, 6, sanitize_text(str(version)), 1, 0, "C")
-                pdf.cell(30, 6, sanitize_text(str(score)), 1, 1, "C")
+                row_vals = [
+                    vuln_id, comp, version, score,
+                    state, justif, response,
+                    comment_text, comment_time, commenter,
+                ]
+
+            for i, ((col_name, col_w), val) in enumerate(zip(cols, row_vals)):
+                pdf.cell(col_w, 6, trunc(val, col_w), 1, 1 if i == len(cols) - 1 else 0, "L")
 
         pdf.ln(8)
 
-    # Detailed vulnerability information
+    # Detail section: descriptions and external references
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(0, 12, "Detailed Vulnerability Information", ln=True)
+    pdf.cell(0, 12, "Vulnerability Details", ln=True)
     pdf.ln(5)
 
-    # Show detailed info for all vulnerabilities
-    if detailed_vulns:
-        for vuln in detailed_vulns:
+    all_vulns = (vulns_by_severity["CRITICAL"] + vulns_by_severity["HIGH"] +
+                 vulns_by_severity["MEDIUM"]   + vulns_by_severity["LOW"])
+
+    if all_vulns:
+        for vuln in all_vulns:
             v = vuln.get("vulnerability", {})
             c = vuln.get("component", {})
 
-            vuln_id = v.get("vulnId", "N/A")
-            severity = v.get("severity", "N/A")
-            score = v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A"
-            component = c.get("name", "N/A")
-            version = c.get("version", "N/A")
-            description = v.get("description", "No description available")[:400]
-            cwes = v.get("cwes", [])
-            published = v.get("published", "")
+            vuln_id     = v.get("vulnId", "N/A")
+            severity    = v.get("severity", "N/A")
+            score       = v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A"
+            description = sanitize_text((v.get("description") or "No description available")[:500])
+            cwes        = v.get("cwes", [])
+            published   = v.get("published", "")
 
-            sev_color = (220, 38, 38) if severity == "CRITICAL" else (234, 88, 12)
+            sev_color = (220, 38, 38) if severity == "CRITICAL" else \
+                        (234, 88, 12) if severity == "HIGH" else \
+                        (250, 204, 21) if severity == "MEDIUM" else (34, 197, 94)
 
-            # Set link destination
-            if vuln_id in vuln_links:
-                pdf.set_link(vuln_links[vuln_id], y=pdf.get_y())
-
-            # Vulnerability ID header
-            pdf.set_font("Helvetica", "B", 14)
+            pdf.set_font("Helvetica", "B", 12)
             pdf.set_text_color(*sev_color)
-            pdf.cell(0, 8, vuln_id, ln=True)
+            pdf.cell(0, 8, sanitize_text(vuln_id), ln=True)
 
+            component_info = (f"{sanitize_text(c.get('name',''))} v{sanitize_text(str(c.get('version','')))} "
+                              f"| CVSS: {score} | {severity}")
+            if vuln.get('sourceName'):
+                component_info += f" | Project: {sanitize_text(vuln['sourceName'])}"
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(100, 116, 139)
-            component_info = f"{component} v{version} | CVSS: {score} | {severity}"
-            if vuln.get('sourceName'):
-                component_info += f" | Project: {vuln['sourceName']}"
             pdf.cell(0, 5, sanitize_text(component_info), ln=True)
             pdf.ln(2)
 
-            # Description
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(51, 65, 85)
-            pdf.multi_cell(0, 4, sanitize_text(description) + ("..." if len(v.get("description", "")) > 400 else ""))
+            suffix = "..." if len(v.get("description", "")) > 500 else ""
+            pdf.multi_cell(0, 4, description + suffix)
             pdf.ln(2)
 
-            # CWE info
             if cwes or published:
-                pdf.set_font("Helvetica", "", 8)
-                pdf.set_text_color(100, 116, 139)
                 info_parts = []
                 if published:
                     info_parts.append(f"Published: {published[:10]}")
                 if cwes:
-                    cwe_list = ", ".join([f"CWE-{cwe.get('cweId')}" for cwe in cwes[:3]])
-                    info_parts.append(cwe_list)
+                    info_parts.append(", ".join(f"CWE-{cwe.get('cweId')}" for cwe in cwes[:3]))
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(100, 116, 139)
                 pdf.cell(0, 4, " | ".join(info_parts), ln=True)
-                pdf.ln(1)
 
-            # External reference link
             if vuln_id.startswith("CVE-"):
+                link_url = f"https://nvd.nist.gov/vuln/detail/{vuln_id}"
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(59, 130, 246)
-                link_url = f"https://nvd.nist.gov/vuln/detail/{vuln_id}"
                 pdf.cell(0, 4, f"-> {link_url}", ln=True, link=link_url)
             elif vuln_id.startswith("GHSA-"):
+                link_url = f"https://github.com/advisories/{vuln_id}"
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(59, 130, 246)
-                link_url = f"https://github.com/advisories/{vuln_id}"
                 pdf.cell(0, 4, f"-> {link_url}", ln=True, link=link_url)
 
             pdf.ln(4)
             pdf.set_draw_color(226, 232, 240)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.line(10, pdf.get_y(), PAGE_W - 10, pdf.get_y())
             pdf.ln(6)
     else:
         pdf.set_font("Helvetica", "", 12)
         pdf.set_fill_color(240, 253, 244)
         pdf.set_text_color(22, 163, 74)
-        pdf.cell(0, 12, "   [OK] No critical or high severity vulnerabilities found", ln=True, fill=True)
-
-    # Footer information
-    pdf.ln(10)
-    pdf.set_font("Helvetica", "I", 8)
-    pdf.set_text_color(148, 163, 184)
-    pdf.multi_cell(0, 4, "This report shows critical and high severity vulnerabilities only. For a complete analysis including all severity levels, detailed remediation steps, and exploitability metrics, please access the Dependency Track web interface or review the full findings export.", align="C")
+        pdf.cell(0, 12, "   [OK] No vulnerabilities found", ln=True, fill=True)
 
     pdf.output("vulnerability-report.pdf")
     print("PDF generated successfully")

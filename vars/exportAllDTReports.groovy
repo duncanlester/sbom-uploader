@@ -80,7 +80,10 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                     def findings = readJSON text: (findingsJson ?: '[]')
                     def metrics  = readJSON text: (metricsJson  ?: '{}')
 
-                    findings.each { f -> f.sourceName = sourceName }
+                    findings.each { f ->
+                        f.sourceName  = sourceName
+                        f.projectUuid = child.uuid
+                    }
                     allFindings.addAll(findings)
 
                     aggMetrics.critical        += (metrics.critical        ?: 0)
@@ -97,8 +100,10 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                 sh """
                     docker run --rm --network=host \
                         -v ${env.WORKSPACE}:/workspace \
-                        -w /workspace \
-                        python:3.11-slim \
+                        -w /workspace \\
+                        -e DT_API_URL='${dtUrl}' \\
+                        -e DT_API_KEY="\$DT_API_KEY" \\
+                        python:3.11-slim \\
                         bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${parentName}" "${parentVersion}"'
                 """
 
