@@ -30,15 +30,26 @@ fi
 
 echo "Fetching project list..."
 
-# DT paginates at 100 by default — request a large page to get everything
-PROJECTS=$(curl -s "${API_URL}/api/v1/project?pageSize=1000&onlyRoot=false" \
-  -H "Authorization: Bearer ${TOKEN}")
+# DT paginates — fetch all pages
+PAGE=1
+PAGE_SIZE=100
+ALL_PROJECTS='[]'
+while true; do
+  PAGE_DATA=$(curl -s "${API_URL}/api/v1/project?pageNumber=${PAGE}&pageSize=${PAGE_SIZE}&onlyRoot=false" \
+    -H "Authorization: Bearer ${TOKEN}")
+  PAGE_COUNT=$(echo "$PAGE_DATA" | jq 'length')
+  ALL_PROJECTS=$(echo "$ALL_PROJECTS $PAGE_DATA" | jq -s '.[0] + .[1]')
+  if [ "$PAGE_COUNT" -lt "$PAGE_SIZE" ]; then
+    break
+  fi
+  PAGE=$((PAGE + 1))
+done
 
 if [ -z "$PATTERN" ]; then
-  MATCHES=$(echo "$PROJECTS" | jq -r '.[] | [.uuid, .name] | @tsv')
+  MATCHES=$(echo "$ALL_PROJECTS" | jq -r '.[] | [.uuid, .name] | @tsv')
 else
-  MATCHES=$(echo "$PROJECTS" | jq -r --arg pat "$PATTERN" \
-    '.[] | select(.name | contains($pat)) | [.uuid, .name] | @tsv')
+  MATCHES=$(echo "$ALL_PROJECTS" | jq -r --arg pat "$PATTERN" \
+    '.[] | select(.name | ascii_downcase | contains($pat | ascii_downcase)) | [.uuid, .name] | @tsv')
 fi
 
 if [ -z "$MATCHES" ]; then
