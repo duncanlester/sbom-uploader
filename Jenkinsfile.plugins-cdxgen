@@ -1,0 +1,91 @@
+@Library('sbom-uploader') _
+
+pipeline {
+  agent any
+
+  parameters {
+    string(
+      name: 'TARGET_JENKINS_URL',
+      defaultValue: 'http://localhost:8080',
+      description: 'Jenkins base URL of the instance to scan'
+    )
+    string(
+      name: 'TARGET_JENKINS_USERNAME',
+      defaultValue: 'admin',
+      description: 'Username for the target Jenkins instance — leave blank if security is disabled'
+    )
+    password(
+      name: 'TARGET_JENKINS_PASSWORD',
+      defaultValue: 'admin',
+      description: 'Password for the target Jenkins instance — leave blank if security is disabled'
+    )
+    string(
+      name: 'CDXGEN_VERSION',
+      defaultValue: 'latest',
+      description: 'cdxgen Docker image tag (e.g. latest, v11.5.6)'
+    )
+  }
+  environment {
+    DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+    DEPENDENCY_TRACK_API_URL = 'http://dtrack-apiserver:8080'
+  }
+
+  stages {
+
+    stage('List installed plugins') {
+      steps {
+        script {
+          listJenkinsPlugins(
+            jenkinsUrl: params.TARGET_JENKINS_URL,
+            username:   params.TARGET_JENKINS_USERNAME,
+            password:   params.TARGET_JENKINS_PASSWORD
+          )
+        }
+        archiveArtifacts artifacts: 'plugins-list.txt', fingerprint: true
+      }
+    }
+
+    stage('Generate per-plugin SBOMs (cdxgen)') {
+      steps {
+        sh '''
+          set -euo pipefail
+          mkdir -p sboms plugins-cache
+          USER_ID=$(id -u)
+          GROUP_ID=$(id -g)
+          while IFS= read -r line; do
+            plugin_id="${line%% *}"
+            version="${line##* }"
+            jpi="${WORKSPACE}/plugins-cache/${plugin_id}.jpi"
+            if [ ! -f "$jpi" ]; then
+              echo "Downloading ${plugin_id} ${version}..."
+              curl -fsSL "https://updates.jenkins.io/download/plugins/${plugin_id}/${version}/${plugin_id}.hpi" \
+                -o "$jpi" || { echo "WARNING: skipping ${plugin_id} (not on update center)"; continue; }
+            fi
+            echo "Generating SBOM for ${plugin_id}..."
+            docker run --rm \
+              -u "${USER_ID}:${GROUP_ID}" \
+              -v "${WORKSPACE}:${WORKSPACE}" \
+              "ghcr.io/cyclonedx/cdxgen:''' + params.CDXGEN_VERSION + '''" \
+              -t jar "${jpi}" \
+              -o "${WORKSPACE}/sboms/${plugin_id}.json"
+          done < plugins-list.txt
+        '''
+        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
+      }
+    }
+
+    stage('Upload SBOMs to Dependency-Track') {
+      steps {
+        script {
+          def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
+          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion)
+        }
+      }
+    }
+  }
+  post {
+    always {
+      deleteDir()
+    }
+  }
+}
