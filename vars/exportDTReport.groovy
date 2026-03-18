@@ -48,7 +48,7 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
 
         // Get findings
         sh """
-            curl -s -X GET '${dtUrl}/api/v1/finding/project/${projectUuid}' \
+            curl -s -X GET '${dtUrl}/api/v1/finding/project/${projectUuid}?suppressed=true' \
                 -H "X-Api-Key: \$DT_API_KEY" \
                 -o findings.json
         """

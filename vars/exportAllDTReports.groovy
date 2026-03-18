@@ -68,7 +68,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                     def sourceName = child.name
 
                     def findingsJson = sh(script: """
-                        curl -s '${dtUrl}/api/v1/finding/project/${child.uuid}' \
+                        curl -s '${dtUrl}/api/v1/finding/project/${child.uuid}?suppressed=true' \
                             -H "X-Api-Key: \$DT_API_KEY"
                     """, returnStdout: true).trim()
 

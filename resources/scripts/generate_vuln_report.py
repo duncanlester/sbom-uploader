@@ -73,7 +73,7 @@ def main(project_name, project_version):
     class VulnPDF(FPDF):
         def header(self):
             self.set_fill_color(30, 58, 138)
-            self.rect(0, 0, PAGE_W, 45, 'F')
+            self.rect(0, 0, self.w, 45, 'F')
             self.set_text_color(255, 255, 255)
             self.set_font("Helvetica", "B", 32)
             self.set_y(15)
@@ -88,7 +88,7 @@ def main(project_name, project_version):
             self.set_font("Helvetica", "I", 8)
             self.set_text_color(148, 163, 184)
             self.set_draw_color(226, 232, 240)
-            self.line(10, self.get_y() - 3, PAGE_W - 10, self.get_y() - 3)
+            self.line(10, self.get_y() - 3, self.w - 10, self.get_y() - 3)
             self.cell(0, 10, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} | Page {self.page_no()}", align="C")
 
     # Create PDF — landscape A4
@@ -173,34 +173,32 @@ def main(project_name, project_version):
     ]
 
     # Column definitions — usable width = 297 - 10 - 10 = 277 mm
-    # Without Project column (10 cols): 38+33+18+15+28+35+28+52+18+12 = 277
-    # With Project column (11 cols):    35+26+25+16+13+25+32+25+47+18+15 = 277
+    # Without Project column (9 cols):  40+42+16+28+36+28+52+22+13 = 277
+    # With Project column (10 cols):    35+25+38+14+25+32+24+46+20+18 = 277
     if has_source_col:
         cols = [
-            ("Vulnerability ID", 35),
-            ("Project",          26),
-            ("Component",        25),
-            ("Version",          16),
-            ("CVSS",             13),
-            ("Analysis State",   25),
-            ("Justification",    32),
-            ("Response",         25),
-            ("Comments",         47),
-            ("Time",             18),
-            ("Commenter",        15),
+            ("Vulnerability ID",       35),
+            ("Project",                25),
+            ("Component Version",      38),
+            ("CVSS Score",             14),
+            ("Analysis State",         25),
+            ("Analysis Justification", 32),
+            ("Analysis Response",      24),
+            ("Analysis Comments",      46),
+            ("Time of Comment",        20),
+            ("Commenter",              18),
         ]
     else:
         cols = [
-            ("Vulnerability ID", 38),
-            ("Component",        33),
-            ("Version",          18),
-            ("CVSS",             15),
-            ("Analysis State",   28),
-            ("Justification",    35),
-            ("Response",         28),
-            ("Comments",         52),
-            ("Time",             18),
-            ("Commenter",        12),
+            ("Vulnerability ID",       40),
+            ("Component Version",      42),
+            ("CVSS Score",             16),
+            ("Analysis State",         28),
+            ("Analysis Justification", 36),
+            ("Analysis Response",      28),
+            ("Analysis Comments",      52),
+            ("Time of Comment",        22),
+            ("Commenter",              13),
         ]
 
     def trunc(text, col_w):
@@ -232,30 +230,39 @@ def main(project_name, project_version):
             c = vuln.get("component", {})
             a = vuln.get("_analysis", {})
 
-            vuln_id  = sanitize_text(v.get("vulnId", "N/A"))
-            comp     = sanitize_text(c.get("name", "N/A"))
-            version  = sanitize_text(str(c.get("version") or "N/A"))
-            score    = str(v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A")
-            state    = sanitize_text((a.get("analysisState")         or "").replace("_", " "))
-            justif   = sanitize_text((a.get("analysisJustification") or "").replace("_", " "))
-            response = sanitize_text((a.get("analysisResponse")      or "").replace("_", " "))
+            vuln_id      = sanitize_text(v.get("vulnId", "N/A"))
+            comp_name    = sanitize_text(c.get("name", ""))
+            version      = sanitize_text(str(c.get("version") or ""))
+            comp_version = f"{comp_name} {version}".strip() if version else comp_name or "N/A"
+            score        = str(v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A")
+            suppressed   = a.get("isSuppressed", False)
+            state_raw    = (a.get("analysisState") or "").replace("_", " ")
+            state        = sanitize_text(f"[SUPPRESSED] {state_raw}".strip() if suppressed and state_raw else
+                                         "[SUPPRESSED]" if suppressed else state_raw)
+            justif       = sanitize_text((a.get("analysisJustification") or "").replace("_", " "))
+            response     = sanitize_text((a.get("analysisResponse")      or "").replace("_", " "))
 
             last_comment = (a.get("analysisComments") or [{}])[-1]
             comment_text = sanitize_text(last_comment.get("comment", ""))
-            raw_ts       = last_comment.get("timestamp", "")
-            comment_time = raw_ts[:16].replace("T", " ") if raw_ts else ""
+            raw_ts       = last_comment.get("timestamp")
+            if isinstance(raw_ts, (int, float)):
+                comment_time = datetime.fromtimestamp(raw_ts / 1000).strftime('%Y-%m-%d %H:%M')
+            elif isinstance(raw_ts, str) and raw_ts:
+                comment_time = raw_ts[:16].replace("T", " ")
+            else:
+                comment_time = ""
             commenter    = sanitize_text(last_comment.get("commenter", ""))
 
             if has_source_col:
                 row_vals = [
                     vuln_id, sanitize_text(vuln.get("sourceName", "")),
-                    comp, version, score,
+                    comp_version, score,
                     state, justif, response,
                     comment_text, comment_time, commenter,
                 ]
             else:
                 row_vals = [
-                    vuln_id, comp, version, score,
+                    vuln_id, comp_version, score,
                     state, justif, response,
                     comment_text, comment_time, commenter,
                 ]
@@ -333,7 +340,7 @@ def main(project_name, project_version):
 
             pdf.ln(4)
             pdf.set_draw_color(226, 232, 240)
-            pdf.line(10, pdf.get_y(), PAGE_W - 10, pdf.get_y())
+            pdf.line(10, pdf.get_y(), pdf.w - 10, pdf.get_y())
             pdf.ln(6)
     else:
         pdf.set_font("Helvetica", "", 12)
