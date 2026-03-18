@@ -67,10 +67,13 @@ pipeline {
               -v "${WORKSPACE}:${WORKSPACE}" \
               "ghcr.io/cyclonedx/cdxgen:''' + params.CDXGEN_VERSION + '''" \
               -t jar "${jpi}" \
-              -o "${WORKSPACE}/sboms/${plugin_id}.json"
+              -o "${WORKSPACE}/sboms/${plugin_id}.json" \
+              || { echo "WARNING: cdxgen failed for ${plugin_id} — skipping"; rm -f "${WORKSPACE}/sboms/${plugin_id}.json"; continue; }
           done < plugins-list.txt
+          count=$(find sboms -name '*.json' | wc -l | tr -d ' ')
+          echo "Generated ${count} SBOM(s)"
         '''
-        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true
+        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: true
       }
     }
 
