@@ -19,11 +19,6 @@ pipeline {
       defaultValue: 'admin',
       description: 'Password for the target Jenkins instance — leave blank if security is disabled'
     )
-    string(
-      name: 'CDXGEN_VERSION',
-      defaultValue: 'latest',
-      description: 'cdxgen Docker image tag to use'
-    )
   }
 
   environment {
@@ -46,49 +41,19 @@ pipeline {
       }
     }
 
-    stage('Generate per-plugin SBOMs (cdxgen)') {
+    stage('Generate per-plugin SBOMs') {
       steps {
+        script {
+          writeFile file: 'plugins_to_sboms.py', text: libraryResource('scripts/plugins_to_sboms.py')
+        }
         sh '''
-          set -euo pipefail
-          mkdir -p sboms plugins-cache
-          USER_ID=$(id -u)
-          GROUP_ID=$(id -g)
-          while IFS= read -r line; do
-            plugin_id="${line%% *}"
-            version="${line##* }"
-            hpi="${WORKSPACE}/plugins-cache/${plugin_id}.hpi"
-            jar="${WORKSPACE}/plugins-cache/${plugin_id}.jar"
-            if [ ! -f "$hpi" ]; then
-              echo "Downloading ${plugin_id} ${version}..."
-              curl -fsSL "https://updates.jenkins.io/download/plugins/${plugin_id}/${version}/${plugin_id}.hpi" \
-                -o "$hpi" || { echo "WARNING: skipping ${plugin_id} (not on update center)"; continue; }
-            fi
-            # cdxgen checks file extensions — copy to .jar so it recognises the format
-            cp "$hpi" "$jar"
-            out="${WORKSPACE}/sboms/${plugin_id}.json"
-            echo "Generating SBOM for ${plugin_id}..."
-            docker run --rm \
-              -u "${USER_ID}:${GROUP_ID}" \
-              -v "${WORKSPACE}:${WORKSPACE}" \
-              -e CDXGEN_DEBUG_MODE=debug \
-              "ghcr.io/cyclonedx/cdxgen:''' + params.CDXGEN_VERSION + '''" \
-              -t jar "${jar}" \
-              -o "${out}" \
-              || { echo "WARNING: cdxgen non-zero exit for ${plugin_id} — skipping"; rm -f "${out}"; continue; }
-            # cdxgen can exit 0 without writing anything — treat that as a warning too
-            if [ ! -s "${out}" ]; then
-              echo "WARNING: cdxgen produced no output for ${plugin_id} — skipping"
-              rm -f "${out}"
-            else
-              echo "OK: ${plugin_id} -> ${out}"
-            fi
-          done < plugins-list.txt
-          echo "--- sboms directory ---"
-          ls -lh sboms/ || true
-          count=$(find sboms -name '*.json' | wc -l | tr -d ' ')
-          echo "Generated ${count} SBOM(s)"
+          docker run --rm \
+            -v "${WORKSPACE}:${WORKSPACE}" \
+            -w "${WORKSPACE}" \
+            python:3.11-slim \
+            python3 plugins_to_sboms.py plugins-list.txt sboms
         '''
-        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: true
+        archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: false
       }
     }
 
