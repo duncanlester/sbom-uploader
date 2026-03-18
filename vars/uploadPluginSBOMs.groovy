@@ -15,6 +15,11 @@ def call(Map config = [:]) {
     def sbomGlob = config.sbomGlob ?: 'sboms/*.json'
     def jenkinsVersion = config.jenkinsVersion ?: 'unknown'
     def apiUrl = config.apiUrl ?: env.DEPENDENCY_TRACK_API_URL
+    def scanner = config.scanner ?: ''
+
+    def suffix       = scanner ? "-${scanner}" : ''
+    def parentName   = "jenkins-plugins${suffix}"
+    def childPrefix  = "jenkins-plugin"
 
     def pluginVersions = [:]
     readFile(pluginsFile).readLines().each { line ->
@@ -29,7 +34,7 @@ def call(Map config = [:]) {
     echo "Uploading ${sbomFiles.size()} SBOMs to Dependency-Track..."
 
     def parentUUID = createDTCollectionProject(
-        name:    'jenkins-plugins',
+        name:    parentName,
         version: jenkinsVersion,
         apiUrl:  apiUrl
     )
@@ -37,11 +42,12 @@ def call(Map config = [:]) {
     sbomFiles.each { sbom ->
         def pluginId = sbom.name.replaceAll(/\.json$/, '')
         def version  = pluginVersions.get(pluginId, 'unknown')
+        def childName = "${childPrefix}-${pluginId}${suffix}"
 
-        echo "  → jenkins-plugin-${pluginId} @ ${version}"
+        echo "  \u2192 ${childName} @ ${version}"
         uploadSBOM(
             sbomFile:       sbom.path,
-            projectName:    "jenkins-plugin-${pluginId}",
+            projectName:    childName,
             projectVersion: version,
             parentUUID:     parentUUID,
             apiUrl:         apiUrl
