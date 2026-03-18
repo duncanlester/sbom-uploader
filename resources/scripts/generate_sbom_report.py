@@ -60,7 +60,8 @@ def load_boms():
             ver   = sanitize_text(meta.get('version', ''))
             label = f"{name} {ver}".strip()
             projects.append((label, bom.get('components', [])))
-    elif os.path.isfile('bom.json'):
+    # Fall back to single bom.json whether or not boms/ existed (may have been empty)
+    if not projects and os.path.isfile('bom.json'):
         with open('bom.json') as f:
             bom = json.load(f)
         meta  = bom.get('metadata', {}).get('component', {})
