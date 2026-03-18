@@ -218,6 +218,12 @@ def main(report_title):
             pdf.set_font("Helvetica", "", 7)
             y_start = pdf.get_y()
 
+        # Disable auto page break while drawing — we already checked will_page_break.
+        # Leaving it enabled lets multi_cell add a page mid-row; the remaining
+        # columns then land at the old y_start on the new page (near the bottom)
+        # which triggers another break, cascading into many blank pages.
+        pdf.set_auto_page_break(False)
+
         # Fill background then draw cell borders
         pdf.set_fill_color(*fill_color)
         pdf.set_draw_color(180, 195, 210)
@@ -234,6 +240,7 @@ def main(report_title):
             pdf.multi_cell(col_w - 2, line_h, val, border=0, align="L")
             x_cursor += col_w
 
+        pdf.set_auto_page_break(True, margin=25)
         pdf.set_y(y_start + row_h)
 
     ROW_COLORS = [(245, 249, 252), (255, 255, 255)]
@@ -256,7 +263,10 @@ def main(report_title):
         for i, comp in enumerate(comps):
             render_data_row(comp.get('_row', []), ROW_COLORS[i % 2])
 
-        pdf.ln(8)
+        # Guard: don't ln() if it would push past the page break margin
+        # (would silently add a blank page)
+        if pdf.get_y() + 8 < pdf.h - 25:
+            pdf.ln(8)
 
     pdf.output("sbom-component-report.pdf")
     print("SBOM component report generated successfully")
