@@ -252,6 +252,24 @@ def main(project_name, project_version):
 
     cols = list(zip(col_names, col_widths))
 
+    def count_lines(text, col_w):
+        """Word-wrap aware line count for a given column width."""
+        if not text:
+            return 1
+        pdf.set_font("Helvetica", "", 7)
+        space_w = pdf.get_string_width(' ')
+        lines, line_w = 1, 0
+        for word in text.split():
+            word_w = pdf.get_string_width(word)
+            if line_w == 0:
+                line_w = word_w
+            elif line_w + space_w + word_w <= col_w - 2:
+                line_w += space_w + word_w
+            else:
+                lines += 1
+                line_w = word_w
+        return lines
+
     def render_data_row(row_vals):
         """Render a table data row with wrapping text and uniform cell height."""
         pdf.set_font("Helvetica", "", 7)
@@ -259,19 +277,22 @@ def main(project_name, project_version):
         x_start = pdf.l_margin
         line_h = 5
 
-        # Measure how many lines each cell needs, take the max for a uniform row height
+        # Accurate line count using word-boundary wrapping
         max_lines = 1
         for (_, col_w), val in zip(cols, row_vals):
             if val:
-                lines = max(1, ceil(pdf.get_string_width(val) / max(1, col_w - 2)))
-                max_lines = max(max_lines, lines)
+                max_lines = max(max_lines, count_lines(val, col_w))
         row_h = max_lines * line_h
 
-        # Start a new page if the row won't fit, then re-set font (header resets it)
         if pdf.will_page_break(row_h):
             pdf.add_page()
             pdf.set_font("Helvetica", "", 7)
             y_start = pdf.get_y()
+
+        # Disable auto page break while drawing the row — multi_cell must not
+        # trigger a mid-row page break or remaining cells land at y_start on
+        # the new page, producing orphaned content and blank pages.
+        pdf.set_auto_page_break(False)
 
         # Draw all cell borders at the full uniform row height
         pdf.set_draw_color(180, 195, 210)
@@ -280,7 +301,7 @@ def main(project_name, project_version):
             pdf.rect(x_cursor, y_start, col_w, row_h)
             x_cursor += col_w
 
-        # Render text in each cell without border (borders already drawn above)
+        # Render text in each cell
         pdf.set_text_color(51, 65, 85)
         x_cursor = x_start
         for (_, col_w), val in zip(cols, row_vals):
@@ -288,6 +309,7 @@ def main(project_name, project_version):
             pdf.multi_cell(col_w - 2, line_h, val, border=0, align="L")
             x_cursor += col_w
 
+        pdf.set_auto_page_break(True, margin=25)
         pdf.set_y(y_start + row_h)
 
     for sev_label, sev_color in severity_configs:

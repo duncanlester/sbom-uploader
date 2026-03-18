@@ -206,11 +206,26 @@ def main(report_title):
         y_start = pdf.get_y()
         line_h  = 5
 
+        def count_lines(text, col_w):
+            if not text:
+                return 1
+            space_w = pdf.get_string_width(' ')
+            lines, line_w = 1, 0
+            for word in text.split():
+                word_w = pdf.get_string_width(word)
+                if line_w == 0:
+                    line_w = word_w
+                elif line_w + space_w + word_w <= col_w - 2:
+                    line_w += space_w + word_w
+                else:
+                    lines += 1
+                    line_w = word_w
+            return lines
+
         max_lines = 1
         for (_, col_w), val in zip(cols, row_vals):
             if val:
-                lines = max(1, ceil(pdf.get_string_width(val) / max(1, col_w - 2)))
-                max_lines = max(max_lines, lines)
+                max_lines = max(max_lines, count_lines(val, col_w))
         row_h = max_lines * line_h
 
         if pdf.will_page_break(row_h):
