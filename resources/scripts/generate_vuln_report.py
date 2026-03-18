@@ -4,6 +4,7 @@ import sys
 import os
 import urllib.request
 import urllib.parse
+from math import ceil
 from fpdf import FPDF
 from datetime import datetime
 
@@ -172,38 +173,122 @@ def main(project_name, project_version):
         ("LOW",      (34, 197, 94)),
     ]
 
-    # Column definitions — usable width = 297 - 10 - 10 = 277 mm
-    # Without Project column (9 cols):  40+42+16+28+36+28+52+22+13 = 277
-    # With Project column (10 cols):    35+25+38+14+25+32+24+46+20+18 = 277
-    if has_source_col:
-        cols = [
-            ("Vulnerability ID",       35),
-            ("Project",                25),
-            ("Component Version",      38),
-            ("CVSS Score",             14),
-            ("Analysis State",         25),
-            ("Analysis Justification", 32),
-            ("Analysis Response",      24),
-            ("Analysis Comments",      46),
-            ("Time of Comment",        20),
-            ("Commenter",              18),
-        ]
-    else:
-        cols = [
-            ("Vulnerability ID",       40),
-            ("Component Version",      42),
-            ("CVSS Score",             16),
-            ("Analysis State",         28),
-            ("Analysis Justification", 36),
-            ("Analysis Response",      28),
-            ("Analysis Comments",      52),
-            ("Time of Comment",        22),
-            ("Commenter",              13),
-        ]
+    # Pre-build all row values so we can measure content widths before drawing
+    for finding in findings:
+        v = finding.get("vulnerability", {})
+        c = finding.get("component", {})
+        a = finding.get("_analysis", {})
 
-    def trunc(text, col_w):
-        max_chars = max(4, int(col_w / 1.9))
-        return text[:max_chars] + ('~' if len(text) > max_chars else '')
+        vuln_id      = sanitize_text(v.get("vulnId", "N/A"))
+        comp_name    = sanitize_text(c.get("name", ""))
+        version      = sanitize_text(str(c.get("version") or ""))
+        comp_version = f"{comp_name} {version}".strip() if version else comp_name or "N/A"
+        score        = str(v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A")
+        suppressed   = a.get("isSuppressed", False)
+        state_raw    = (a.get("analysisState") or "").replace("_", " ")
+        state        = sanitize_text(f"[SUPPRESSED] {state_raw}".strip() if suppressed and state_raw else
+                                     "[SUPPRESSED]" if suppressed else state_raw)
+        justif       = sanitize_text((a.get("analysisJustification") or "").replace("_", " "))
+        response     = sanitize_text((a.get("analysisResponse")      or "").replace("_", " "))
+
+        last_comment = (a.get("analysisComments") or [{}])[-1]
+        comment_text = sanitize_text(last_comment.get("comment", ""))
+        raw_ts       = last_comment.get("timestamp")
+        if isinstance(raw_ts, (int, float)):
+            comment_time = datetime.fromtimestamp(raw_ts / 1000).strftime('%Y-%m-%d %H:%M')
+        elif isinstance(raw_ts, str) and raw_ts:
+            comment_time = raw_ts[:16].replace("T", " ")
+        else:
+            comment_time = ""
+        commenter = sanitize_text(last_comment.get("commenter", ""))
+
+        if has_source_col:
+            finding['_row_vals'] = [
+                vuln_id, sanitize_text(finding.get("sourceName", "")),
+                comp_version, score,
+                state, justif, response,
+                comment_text, comment_time, commenter,
+            ]
+        else:
+            finding['_row_vals'] = [
+                vuln_id, comp_version, score,
+                state, justif, response,
+                comment_text, comment_time, commenter,
+            ]
+
+    # Column header names
+    if has_source_col:
+        col_names = ["Vulnerability ID", "Project", "Component Version", "CVSS Score",
+                     "Analysis State", "Analysis Justification", "Analysis Response",
+                     "Analysis Comments", "Time of Comment", "Commenter"]
+    else:
+        col_names = ["Vulnerability ID", "Component Version", "CVSS Score",
+                     "Analysis State", "Analysis Justification", "Analysis Response",
+                     "Analysis Comments", "Time of Comment", "Commenter"]
+
+    # Measure widest content per column across headers + all data rows
+    # Cap each cell's contribution so one very long value can't monopolise a column
+    USABLE_W = 277.0
+    MIN_COL  = 14.0
+    CAP_COL  = 65.0
+    PADDING  = 4.0
+
+    pdf.set_font("Helvetica", "B", 7)
+    col_raw = [pdf.get_string_width(name) + PADDING for name in col_names]
+
+    pdf.set_font("Helvetica", "", 7)
+    for finding in findings:
+        for i, val in enumerate(finding.get('_row_vals', [])):
+            w = min(pdf.get_string_width(val) + PADDING, CAP_COL)
+            if w > col_raw[i]:
+                col_raw[i] = w
+
+    col_raw = [max(MIN_COL, w) for w in col_raw]
+
+    # Scale proportionally to fill USABLE_W exactly
+    total = sum(col_raw)
+    col_widths = [round(w * USABLE_W / total, 2) for w in col_raw]
+    col_widths[-1] = round(USABLE_W - sum(col_widths[:-1]), 2)
+
+    cols = list(zip(col_names, col_widths))
+
+    def render_data_row(row_vals):
+        """Render a table data row with wrapping text and uniform cell height."""
+        pdf.set_font("Helvetica", "", 7)
+        y_start = pdf.get_y()
+        x_start = pdf.l_margin
+        line_h = 5
+
+        # Measure how many lines each cell needs, take the max for a uniform row height
+        max_lines = 1
+        for (_, col_w), val in zip(cols, row_vals):
+            if val:
+                lines = max(1, ceil(pdf.get_string_width(val) / max(1, col_w - 2)))
+                max_lines = max(max_lines, lines)
+        row_h = max_lines * line_h
+
+        # Start a new page if the row won't fit, then re-set font (header resets it)
+        if pdf.will_page_break(row_h):
+            pdf.add_page()
+            pdf.set_font("Helvetica", "", 7)
+            y_start = pdf.get_y()
+
+        # Draw all cell borders at the full uniform row height
+        pdf.set_draw_color(180, 195, 210)
+        x_cursor = x_start
+        for (_, col_w), _ in zip(cols, row_vals):
+            pdf.rect(x_cursor, y_start, col_w, row_h)
+            x_cursor += col_w
+
+        # Render text in each cell without border (borders already drawn above)
+        pdf.set_text_color(51, 65, 85)
+        x_cursor = x_start
+        for (_, col_w), val in zip(cols, row_vals):
+            pdf.set_xy(x_cursor + 1, y_start + 0.5)
+            pdf.multi_cell(col_w - 2, line_h, val, border=0, align="L")
+            x_cursor += col_w
+
+        pdf.set_y(y_start + row_h)
 
     for sev_label, sev_color in severity_configs:
         sev_vulns = vulns_by_severity[sev_label]
@@ -226,49 +311,7 @@ def main(project_name, project_version):
         pdf.set_font("Helvetica", "", 7)
         pdf.set_text_color(51, 65, 85)
         for vuln in sev_vulns:
-            v = vuln.get("vulnerability", {})
-            c = vuln.get("component", {})
-            a = vuln.get("_analysis", {})
-
-            vuln_id      = sanitize_text(v.get("vulnId", "N/A"))
-            comp_name    = sanitize_text(c.get("name", ""))
-            version      = sanitize_text(str(c.get("version") or ""))
-            comp_version = f"{comp_name} {version}".strip() if version else comp_name or "N/A"
-            score        = str(v.get("cvssV3BaseScore") or v.get("cvssV2BaseScore") or "N/A")
-            suppressed   = a.get("isSuppressed", False)
-            state_raw    = (a.get("analysisState") or "").replace("_", " ")
-            state        = sanitize_text(f"[SUPPRESSED] {state_raw}".strip() if suppressed and state_raw else
-                                         "[SUPPRESSED]" if suppressed else state_raw)
-            justif       = sanitize_text((a.get("analysisJustification") or "").replace("_", " "))
-            response     = sanitize_text((a.get("analysisResponse")      or "").replace("_", " "))
-
-            last_comment = (a.get("analysisComments") or [{}])[-1]
-            comment_text = sanitize_text(last_comment.get("comment", ""))
-            raw_ts       = last_comment.get("timestamp")
-            if isinstance(raw_ts, (int, float)):
-                comment_time = datetime.fromtimestamp(raw_ts / 1000).strftime('%Y-%m-%d %H:%M')
-            elif isinstance(raw_ts, str) and raw_ts:
-                comment_time = raw_ts[:16].replace("T", " ")
-            else:
-                comment_time = ""
-            commenter    = sanitize_text(last_comment.get("commenter", ""))
-
-            if has_source_col:
-                row_vals = [
-                    vuln_id, sanitize_text(vuln.get("sourceName", "")),
-                    comp_version, score,
-                    state, justif, response,
-                    comment_text, comment_time, commenter,
-                ]
-            else:
-                row_vals = [
-                    vuln_id, comp_version, score,
-                    state, justif, response,
-                    comment_text, comment_time, commenter,
-                ]
-
-            for i, ((col_name, col_w), val) in enumerate(zip(cols, row_vals)):
-                pdf.cell(col_w, 6, trunc(val, col_w), 1, 1 if i == len(cols) - 1 else 0, "L")
+            render_data_row(vuln.get('_row_vals', []))
 
         pdf.ln(8)
 
