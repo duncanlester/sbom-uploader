@@ -1,0 +1,55 @@
+@Library('sbom-uploader') _
+
+pipeline {
+  agent any
+
+  parameters {
+    choice(
+      name: 'REPORT_SCOPE',
+      choices: ['All Projects', 'Single Project'],
+      description: 'Generate SBOM Component Reports for all active DT projects, or a specific one'
+    )
+    string(
+      name: 'PROJECT_NAME',
+      defaultValue: '',
+      description: 'Project name in Dependency-Track (only used when REPORT_SCOPE = Single Project)'
+    )
+    string(
+      name: 'PROJECT_VERSION',
+      defaultValue: '',
+      description: 'Project version in Dependency-Track (only used when REPORT_SCOPE = Single Project)'
+    )
+  }
+
+  environment {
+    DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+    DEPENDENCY_TRACK_API_URL = 'http://dtrack-apiserver:8080'
+  }
+
+  stages {
+    stage('Generate SBOM Component Report') {
+      steps {
+        script {
+          if (params.REPORT_SCOPE == 'All Projects') {
+            exportAllSBOMReports(env.DEPENDENCY_TRACK_API_URL)
+          } else {
+            if (!params.PROJECT_NAME || !params.PROJECT_VERSION) {
+              error 'PROJECT_NAME and PROJECT_VERSION are required for Single Project scope'
+            }
+            exportSBOMReport(
+              params.PROJECT_NAME,
+              params.PROJECT_VERSION,
+              env.DEPENDENCY_TRACK_API_URL
+            )
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      deleteDir()
+    }
+  }
+}
