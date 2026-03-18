@@ -21,7 +21,7 @@ def call(Map config) {
 
     def parentFields = ''
     if (parentUUID) {
-        parentFields = "-F \"parentUUID=${parentUUID}\""
+        parentFields = "-F \"parentId=${parentUUID}\""
     } else if (parentName) {
         parentFields = "-F \"parentName=${parentName}\" -F \"parentVersion=${parentVersion}\""
     }

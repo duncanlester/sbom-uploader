@@ -55,7 +55,7 @@ pipeline {
       steps {
         script {
           def jenkinsVersion = readFile('jenkins-version.txt').trim() ?: 'unknown'
-          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion, scanner: 'cdxgen')
+          uploadPluginSBOMs(jenkinsVersion: jenkinsVersion, scanner: 'purl')
         }
       }
     }
