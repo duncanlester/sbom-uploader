@@ -46,13 +46,7 @@ pipeline {
         script {
           writeFile file: 'plugins_to_sboms.py', text: libraryResource('scripts/plugins_to_sboms.py')
         }
-        sh '''
-          docker run --rm \
-            -v "${WORKSPACE}:${WORKSPACE}" \
-            -w "${WORKSPACE}" \
-            python:3.11-slim \
-            python3 plugins_to_sboms.py plugins-list.txt sboms
-        '''
+        sh 'python3 plugins_to_sboms.py plugins-list.txt sboms'
         archiveArtifacts artifacts: 'sboms/*.json', fingerprint: true, allowEmptyArchive: false
       }
     }
