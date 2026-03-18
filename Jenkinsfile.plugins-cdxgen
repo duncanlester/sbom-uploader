@@ -55,21 +55,35 @@ pipeline {
           while IFS= read -r line; do
             plugin_id="${line%% *}"
             version="${line##* }"
-            jpi="${WORKSPACE}/plugins-cache/${plugin_id}.jpi"
-            if [ ! -f "$jpi" ]; then
+            hpi="${WORKSPACE}/plugins-cache/${plugin_id}.hpi"
+            jar="${WORKSPACE}/plugins-cache/${plugin_id}.jar"
+            if [ ! -f "$hpi" ]; then
               echo "Downloading ${plugin_id} ${version}..."
               curl -fsSL "https://updates.jenkins.io/download/plugins/${plugin_id}/${version}/${plugin_id}.hpi" \
-                -o "$jpi" || { echo "WARNING: skipping ${plugin_id} (not on update center)"; continue; }
+                -o "$hpi" || { echo "WARNING: skipping ${plugin_id} (not on update center)"; continue; }
             fi
+            # cdxgen checks file extensions — copy to .jar so it recognises the format
+            cp "$hpi" "$jar"
+            out="${WORKSPACE}/sboms/${plugin_id}.json"
             echo "Generating SBOM for ${plugin_id}..."
             docker run --rm \
               -u "${USER_ID}:${GROUP_ID}" \
               -v "${WORKSPACE}:${WORKSPACE}" \
+              -e CDXGEN_DEBUG_MODE=debug \
               "ghcr.io/cyclonedx/cdxgen:''' + params.CDXGEN_VERSION + '''" \
-              -t jar "${jpi}" \
-              -o "${WORKSPACE}/sboms/${plugin_id}.json" \
-              || { echo "WARNING: cdxgen failed for ${plugin_id} — skipping"; rm -f "${WORKSPACE}/sboms/${plugin_id}.json"; continue; }
+              -t jar "${jar}" \
+              -o "${out}" \
+              || { echo "WARNING: cdxgen non-zero exit for ${plugin_id} — skipping"; rm -f "${out}"; continue; }
+            # cdxgen can exit 0 without writing anything — treat that as a warning too
+            if [ ! -s "${out}" ]; then
+              echo "WARNING: cdxgen produced no output for ${plugin_id} — skipping"
+              rm -f "${out}"
+            else
+              echo "OK: ${plugin_id} -> ${out}"
+            fi
           done < plugins-list.txt
+          echo "--- sboms directory ---"
+          ls -lh sboms/ || true
           count=$(find sboms -name '*.json' | wc -l | tr -d ' ')
           echo "Generated ${count} SBOM(s)"
         '''
