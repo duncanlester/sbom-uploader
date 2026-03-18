@@ -57,7 +57,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                 sh """
                     curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${project.uuid}' \
                         -H "X-Api-Key: \$DT_API_KEY" \
-                        -H "Accept: application/json" \
+                        -H "Accept: application/vnd.cyclonedx+json" \
                         -o bom.json
                 """
                 runPython("${projectName} ${projectVersion}", safeFilename)
@@ -85,7 +85,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                         sh """
                             curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
                                 -H "X-Api-Key: \$DT_API_KEY" \
-                                -H "Accept: application/json" \
+                                -H "Accept: application/vnd.cyclonedx+json" \
                                 -o "boms/${childSafe}.json"
                         """
                     }
@@ -94,7 +94,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                     sh """
                         curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${parent.uuid}' \
                             -H "X-Api-Key: \$DT_API_KEY" \
-                            -H "Accept: application/json" \
+                            -H "Accept: application/vnd.cyclonedx+json" \
                             -o bom.json
                     """
                 }

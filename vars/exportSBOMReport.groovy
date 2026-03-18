@@ -36,7 +36,7 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
         sh """
             curl -s -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${projectUuid}' \
                 -H "X-Api-Key: \$DT_API_KEY" \
-                -H "Accept: application/json" \
+                -H "Accept: application/vnd.cyclonedx+json" \
                 -o bom.json
         """
 
