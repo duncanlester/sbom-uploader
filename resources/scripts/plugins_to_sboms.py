@@ -32,7 +32,11 @@ UPDATE_CENTER_URL = "https://updates.jenkins.io/update-center.actual.json"
 
 def fetch_update_center():
     print(f"Fetching update centre metadata from {UPDATE_CENTER_URL}...")
-    with urllib.request.urlopen(UPDATE_CENTER_URL, timeout=30) as resp:
+    req = urllib.request.Request(
+        UPDATE_CENTER_URL,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; jenkins-sbom-uploader/1.0)"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.load(resp)
     return data.get("plugins", {})
 
