@@ -20,10 +20,21 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         sh 'mkdir -p reports'
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
-        // Identify collection projects and which projects are their children
+        // Identify collection projects and fetch their children via the dedicated
+        // endpoint — more reliable than reading the 'parent' field from the flat
+        // project listing (DT does not consistently include it there).
         def collectionProjects = allProjects.findAll { it.collectionLogic && it.active }
-        def collectionUUIDs    = collectionProjects.collect { it.uuid } as Set
-        def childUUIDs         = allProjects.findAll { it.parent && collectionUUIDs.contains(it.parent?.uuid) }.collect { it.uuid } as Set
+
+        def collectionChildren = [:]
+        collectionProjects.each { parent ->
+            def childrenJson = sh(script: """
+                curl -s -X GET '${dtUrl}/api/v1/project/${parent.uuid}/children?pageSize=1000' \
+                    -H "X-Api-Key: \$DT_API_KEY"
+            """, returnStdout: true).trim()
+            collectionChildren[parent.uuid] = (readJSON(text: childrenJson ?: '[]')).findAll { it.active }
+        }
+
+        def childUUIDs = collectionChildren.values().flatten().collect { it.uuid } as Set
 
         // Standalone: active, not a collection, not a child of a collection
         def standaloneProjects = allProjects.findAll { p ->
@@ -50,7 +61,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
 
         // --- Grouped reports for each collection parent ---
         collectionProjects.each { parent ->
-            def children = allProjects.findAll { p -> p.active && p.parent?.uuid == parent.uuid }
+            def children = collectionChildren[parent.uuid] ?: []
             if (!children) {
                 echo "Skipping collection ${parent.name} - no active children"
                 return
