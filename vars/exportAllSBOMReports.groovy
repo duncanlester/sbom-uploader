@@ -14,14 +14,30 @@
 def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
 
-        sh """
-            curl -s -X GET '${dtUrl}/api/v1/project?pageSize=1000' \
-                -H "X-Api-Key: \$DT_API_KEY" \
-                -o all-projects.json
-        """
+        // Paginate through all projects (DT caps at 100 per page)
+        def allProjects = []
+        def projectPage = 1
+        def fetchMore = true
+        while (fetchMore) {
+            def pageJson = sh(script: """
+                curl -s -X GET '${dtUrl}/api/v1/project?pageSize=100&pageNumber=${projectPage}' \
+                    -H "X-Api-Key: \$DT_API_KEY"
+            """, returnStdout: true).trim()
 
-        def allProjects = readJSON file: 'all-projects.json'
-        echo "Fetched ${allProjects.size()} projects from Dependency-Track"
+            if (!pageJson || pageJson == '[]' || pageJson == 'null') {
+                fetchMore = false
+            } else {
+                def page = readJSON text: pageJson
+                if (page instanceof List && page.size() > 0) {
+                    allProjects.addAll(page)
+                    fetchMore = (page.size() >= 100)
+                    projectPage++
+                } else {
+                    fetchMore = false
+                }
+            }
+        }
+        echo "Fetched ${allProjects.size()} projects from Dependency-Track (${projectPage - 1} page(s))"
         allProjects.each { p ->
             echo "  Project: ${p.name} (version=${p.version}, active=${p.active}, uuid=${p.uuid})"
         }

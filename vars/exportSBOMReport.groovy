@@ -14,21 +14,16 @@
 def call(String projectName, String projectVersion, String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
 
-        sh """
-            curl -s -X GET '${dtUrl}/api/v1/project?pageSize=1000' \
-                -H "X-Api-Key: \$DT_API_KEY" \
-                -o projects.json
-        """
+        // Look up the specific project by name + version
+        def lookupJson = sh(script: """
+            curl -s '${dtUrl}/api/v1/project/lookup?name=${URLEncoder.encode(projectName, 'UTF-8')}&version=${URLEncoder.encode(projectVersion, 'UTF-8')}' \
+                -H "X-Api-Key: \$DT_API_KEY"
+        """, returnStdout: true).trim()
 
-        def projects        = readJSON file: 'projects.json'
-        def matchingProject = projects.find { it.name == projectName && it.version == projectVersion }
-
-        if (!matchingProject) {
-            def matching = projects.findAll { it.name == projectName }
-            error "Project '${projectName}' version '${projectVersion}' not found in Dependency-Track.\n" +
-                  (matching ? "Available versions for '${projectName}':\n" + matching.collect { "  - ${it.version}" }.join('\n')
-                            : "No projects found with name '${projectName}'")
+        if (!lookupJson || !lookupJson.startsWith('{')) {
+            error "Project '${projectName}' version '${projectVersion}' not found in Dependency-Track."
         }
+        def matchingProject = readJSON text: lookupJson
 
         echo "Project UUID: ${matchingProject.uuid}"
         writeFile file: 'generate_sbom_report.py', text: libraryResource('scripts/generate_sbom_report.py')
