@@ -24,24 +24,16 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         sh 'mkdir -p reports'
         writeFile file: 'generate_sbom_report.py', text: libraryResource('scripts/generate_sbom_report.py')
 
-        def collectionProjects = allProjects.findAll { it.collectionLogic && it.active }
-
-        // Fetch children for each collection from the dedicated endpoint, which is
-        // more reliable than checking the 'parent' field on the flat project listing
-        // (DT does not consistently include parent info in the list-all response).
-        def collectionChildren = [:]
-        collectionProjects.each { parent ->
-            def childrenJson = sh(script: """
-                curl -s -X GET '${dtUrl}/api/v1/project/${parent.uuid}/children?pageSize=1000' \
-                    -H "X-Api-Key: \$DT_API_KEY"
-            """, returnStdout: true).trim()
-            collectionChildren[parent.uuid] = (readJSON(text: childrenJson ?: '[]')).findAll { it.active }
-        }
-
-        def childUUIDs = collectionChildren.values().flatten().collect { it.uuid } as Set
+        // Derive parent/child relationships from the 'parent' field DT reliably
+        // includes on child projects in the flat listing.  We deliberately avoid
+        // relying on 'collectionLogic', which is often absent from the list response.
+        def childProjects      = allProjects.findAll { it.parent?.uuid }
+        def collectionUUIDs    = childProjects.collect { it.parent.uuid } as Set
+        def childUUIDs         = childProjects.collect { it.uuid } as Set
+        def collectionProjects = allProjects.findAll { collectionUUIDs.contains(it.uuid) }
 
         def standaloneProjects = allProjects.findAll { p ->
-            p.active && !p.collectionLogic && !childUUIDs.contains(p.uuid)
+            p.active && !collectionUUIDs.contains(p.uuid) && !childUUIDs.contains(p.uuid)
         }
 
         // Helper: run Python against whatever bom file(s) are present
@@ -79,7 +71,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
 
         // ── Collection parents — one merged report per collection ────────────
         collectionProjects.each { parent ->
-            def children      = collectionChildren[parent.uuid] ?: []
+            def children      = childProjects.findAll { it.active && it.parent?.uuid == parent.uuid }
             def parentName    = parent.name
             def parentVersion = parent.version ?: 'unknown'
             def safeFilename  = "${parentName}-${parentVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')

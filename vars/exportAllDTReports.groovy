@@ -20,25 +20,17 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         sh 'mkdir -p reports'
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
-        // Identify collection projects and fetch their children via the dedicated
-        // endpoint — more reliable than reading the 'parent' field from the flat
-        // project listing (DT does not consistently include it there).
-        def collectionProjects = allProjects.findAll { it.collectionLogic && it.active }
-
-        def collectionChildren = [:]
-        collectionProjects.each { parent ->
-            def childrenJson = sh(script: """
-                curl -s -X GET '${dtUrl}/api/v1/project/${parent.uuid}/children?pageSize=1000' \
-                    -H "X-Api-Key: \$DT_API_KEY"
-            """, returnStdout: true).trim()
-            collectionChildren[parent.uuid] = (readJSON(text: childrenJson ?: '[]')).findAll { it.active }
-        }
-
-        def childUUIDs = collectionChildren.values().flatten().collect { it.uuid } as Set
+        // Derive parent/child relationships from the 'parent' field DT reliably
+        // includes on child projects in the flat listing.  We deliberately avoid
+        // relying on 'collectionLogic', which is often absent from the list response.
+        def childProjects      = allProjects.findAll { it.parent?.uuid }
+        def collectionUUIDs    = childProjects.collect { it.parent.uuid } as Set
+        def childUUIDs         = childProjects.collect { it.uuid } as Set
+        def collectionProjects = allProjects.findAll { collectionUUIDs.contains(it.uuid) }
 
         // Standalone: active, not a collection, not a child of a collection
         def standaloneProjects = allProjects.findAll { p ->
-            p.active && !p.collectionLogic && !childUUIDs.contains(p.uuid)
+            p.active && !collectionUUIDs.contains(p.uuid) && !childUUIDs.contains(p.uuid)
         }
 
         // --- Individual reports for standalone projects ---
@@ -61,7 +53,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
 
         // --- Grouped reports for each collection parent ---
         collectionProjects.each { parent ->
-            def children = collectionChildren[parent.uuid] ?: []
+            def children = childProjects.findAll { it.active && it.parent?.uuid == parent.uuid }
             if (!children) {
                 echo "Skipping collection ${parent.name} - no active children"
                 return
