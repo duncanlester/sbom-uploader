@@ -21,6 +21,11 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         """
 
         def allProjects = readJSON file: 'all-projects.json'
+        echo "Fetched ${allProjects.size()} projects from Dependency-Track"
+        allProjects.each { p ->
+            echo "  Project: ${p.name} (version=${p.version}, active=${p.active}, uuid=${p.uuid})"
+        }
+
         sh 'mkdir -p reports'
         writeFile file: 'generate_sbom_report.py', text: libraryResource('scripts/generate_sbom_report.py')
 
@@ -70,6 +75,9 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                 collectionMap[project.uuid] = [project: project, children: activeChildren]
                 activeChildren.each { childUUIDs.add(it.uuid) }
                 echo "Collection found: ${project.name} (${activeChildren.size()} active children)"
+                activeChildren.each { child ->
+                    echo "  Child: ${child.name} (uuid=${child.uuid})"
+                }
             }
         }
 
@@ -80,11 +88,21 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             p.active && !collectionMap.containsKey(p.uuid) && !childUUIDs.contains(p.uuid)
         }
 
+        echo "Standalone projects (${standaloneProjects.size()}):"
+        standaloneProjects.each { p -> echo "  Standalone: ${p.name} ${p.version ?: 'unknown'}" }
+
+        // Log skipped projects
+        def inactiveProjects = allProjects.findAll { !it.active }
+        if (inactiveProjects) {
+            echo "Skipped inactive projects (${inactiveProjects.size()}):"
+            inactiveProjects.each { p -> echo "  Inactive: ${p.name} ${p.version ?: 'unknown'}" }
+        }
+
         standaloneProjects.each { project ->
             def projectName    = project.name
             def projectVersion = project.version ?: 'unknown'
             def safeFilename   = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
-            echo "Generating SBOM report for: ${projectName} ${projectVersion}"
+            echo "Generating SBOM report for standalone: ${projectName} ${projectVersion}"
             try {
                 sh 'rm -rf boms bom.json'
                 sh """
@@ -94,6 +112,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                         -o bom.json
                 """
                 runPython("${projectName} ${projectVersion}", safeFilename)
+                echo "  -> OK: reports/${safeFilename}-sbom.pdf"
             } catch (Exception e) {
                 echo "WARNING: Failed SBOM report for ${projectName} ${projectVersion}: ${e.message}"
             }
@@ -111,18 +130,30 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             try {
                 sh 'rm -rf boms bom.json'
                 sh 'mkdir -p boms'
+                def downloadedCount = 0
                 children.each { child ->
                     def childSafe = child.name.replaceAll('[^a-zA-Z0-9.-]', '_')
-                    sh """
-                        curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
-                            -H "X-Api-Key: \$DT_API_KEY" \
-                            -H "Accept: application/vnd.cyclonedx+json" \
-                            -o "boms/${childSafe}.json"
-                    """
+                    try {
+                        sh """
+                            curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
+                                -H "X-Api-Key: \$DT_API_KEY" \
+                                -H "Accept: application/vnd.cyclonedx+json" \
+                                -o "boms/${childSafe}.json"
+                        """
+                        downloadedCount++
+                    } catch (Exception childErr) {
+                        echo "  WARNING: Could not download BOM for child ${child.name} (${child.uuid}): ${childErr.message}"
+                    }
                 }
-                runPython("${parentName} ${parentVersion}", safeFilename)
+                echo "  Downloaded ${downloadedCount}/${children.size()} child BOMs"
+                if (downloadedCount > 0) {
+                    runPython("${parentName} ${parentVersion}", safeFilename)
+                    echo "  -> OK: reports/${safeFilename}-sbom.pdf"
+                } else {
+                    echo "  SKIPPED: No child BOMs available for ${parentName}"
+                }
             } catch (Exception e) {
-                echo "WARNING: Failed SBOM report for ${parentName} ${parentVersion}: ${e.message}"
+                echo "WARNING: Failed SBOM report for collection ${parentName} ${parentVersion}: ${e.message}"
             }
         }
 
