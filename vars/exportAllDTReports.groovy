@@ -12,31 +12,8 @@
 def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
 
-        // Paginate through all projects (DT caps at 100 per page)
-        def allProjects = []
-        def projectPage = 1
-        def fetchMore = true
-        while (fetchMore) {
-            def pageJson = sh(script: """
-                curl -s -X GET '${dtUrl}/api/v1/project?pageSize=100&pageNumber=${projectPage}' \
-                    -H "X-Api-Key: \$DT_API_KEY"
-            """, returnStdout: true).trim()
-
-            if (!pageJson || pageJson == '[]' || pageJson == 'null') {
-                fetchMore = false
-            } else {
-                def page = readJSON text: pageJson
-                if (page instanceof List && page.size() > 0) {
-                    allProjects.addAll(page)
-                    fetchMore = (page.size() >= 100)
-                    projectPage++
-                } else {
-                    fetchMore = false
-                }
-            }
-        }
-        echo "DEBUG: Total projects from API: ${allProjects.size()} (fetched ${projectPage - 1} page(s))"
-        sh 'mkdir -p reports'
+        def allProjects = fetchAllDTProjects(dtUrl)
+        sh 'mkdir -p reports'eta
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
         // ── Pass 1: discover collections ──────────────────────────────
