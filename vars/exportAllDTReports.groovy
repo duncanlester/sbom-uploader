@@ -5,11 +5,7 @@
  *
  * Uses /v1/project/{uuid}/children to detect collection vs standalone:
  *   - Has children → collection → single grouped report from all children
- *   - No children  → standalone (only if not itself a child of a collection)
- *
- * Two-pass approach:
- *   Pass 1 — discover every collection and record which UUIDs are children
- *   Pass 2 — generate reports (grouped for collections, individual for standalones)
+ *   - No children and not a child → standalone → individual report
  *
  * @param dtUrl Dependency Track API URL (default: 'http://w-work-19.rdmz.isridev.com:8081')
  */
@@ -23,29 +19,65 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         """
 
         def allProjects = readJSON file: 'all-projects.json'
-        def activeProjects = allProjects.findAll { it.active }
+        echo "DEBUG: Total projects from API: ${allProjects.size()}"
         sh 'mkdir -p reports'
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
-        // ── Pass 1: discover collections and child UUIDs ──────────────
-        // For every active project call /children (paginated).
-        // If it has children it is a collection; record the children's UUIDs
-        // so we can skip them in the standalone pass.
+        // ── Pass 1: discover collections ──────────────────────────────
+        // Check EVERY project (including inactive) for children so we
+        // don't miss a collection parent that happens to be inactive.
         def collectionMap = [:]   // parentUUID → [project:…, children:[…]]
         def childUUIDs    = [] as Set
 
-        activeProjects.each { project ->
-            def allChildren = fetchAllChildren(dtUrl, project.uuid)
+        allProjects.each { project ->
+            echo "DEBUG: Checking /children for: ${project.name} (uuid=${project.uuid}, active=${project.active})"
+
+            // Fetch children inline (paginated) — no separate method to avoid CPS issues
+            def allChildren = []
+            def pageNumber = 1
+            def keepGoing = true
+            while (keepGoing) {
+                def childrenRaw = sh(script: """
+                    curl -s '${dtUrl}/api/v1/project/${project.uuid}/children?pageSize=500&pageNumber=${pageNumber}' \
+                        -H "X-Api-Key: \$DT_API_KEY"
+                """, returnStdout: true).trim()
+
+                echo "DEBUG:   /children page ${pageNumber} raw length: ${childrenRaw.length()} chars"
+                if (!childrenRaw || childrenRaw == 'null' || childrenRaw == '') {
+                    echo "DEBUG:   /children returned empty/null — breaking"
+                    keepGoing = false
+                } else {
+                    def page = readJSON text: childrenRaw
+                    echo "DEBUG:   /children page ${pageNumber} returned ${page instanceof List ? page.size() : 'non-list: ' + page.getClass()} items"
+                    if (page instanceof List && page.size() > 0) {
+                        allChildren.addAll(page)
+                        if (page.size() < 500) {
+                            keepGoing = false
+                        } else {
+                            pageNumber++
+                        }
+                    } else {
+                        keepGoing = false
+                    }
+                }
+            }
+
             def activeChildren = allChildren.findAll { it.active }
+            echo "DEBUG:   Total children: ${allChildren.size()}, active: ${activeChildren.size()}"
 
             if (activeChildren) {
                 collectionMap[project.uuid] = [project: project, children: activeChildren]
                 activeChildren.each { childUUIDs.add(it.uuid) }
-                echo "Collection found: ${project.name} (${activeChildren.size()} active children)"
+                echo "COLLECTION FOUND: ${project.name} → ${activeChildren.size()} active children"
             }
         }
 
-        echo "Discovered ${collectionMap.size()} collection(s), ${childUUIDs.size()} child project(s)"
+        echo "=== DISCOVERY SUMMARY ==="
+        echo "Collections: ${collectionMap.size()}"
+        echo "Child UUIDs: ${childUUIDs.size()}"
+        collectionMap.each { uuid, info ->
+            echo "  Collection: ${info.project.name} (${info.children.size()} children)"
+        }
 
         // ── Pass 2a: grouped reports for each collection ──────────────
         collectionMap.values().each { info ->
@@ -114,9 +146,12 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         }
 
         // ── Pass 2b: standalone reports (not a collection, not a child) ──
-        def standaloneProjects = activeProjects.findAll { p ->
-            !collectionMap.containsKey(p.uuid) && !childUUIDs.contains(p.uuid)
+        def standaloneProjects = allProjects.findAll { p ->
+            p.active && !collectionMap.containsKey(p.uuid) && !childUUIDs.contains(p.uuid)
         }
+
+        echo "=== STANDALONE PROJECTS (${standaloneProjects.size()}) ==="
+        standaloneProjects.each { echo "  Standalone: ${it.name} ${it.version}" }
 
         standaloneProjects.each { project ->
             def projectName    = project.name
@@ -139,29 +174,4 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         echo "All project reports generated and archived"
         echo "Download from: Build page -> Artifacts section"
     }
-}
-
-/**
- * Fetch ALL children of a project, handling DT pagination.
- * Returns a list of child project maps.
- */
-private List fetchAllChildren(String dtUrl, String parentUuid) {
-    def allChildren = []
-    def pageSize = 500
-    def pageNumber = 1
-
-    while (true) {
-        def json = sh(script: """
-            curl -s '${dtUrl}/api/v1/project/${parentUuid}/children?pageSize=${pageSize}&pageNumber=${pageNumber}' \
-                -H "X-Api-Key: \$DT_API_KEY"
-        """, returnStdout: true).trim()
-
-        def page = readJSON text: (json ?: '[]')
-        if (!page) break
-
-        allChildren.addAll(page)
-        if (page.size() < pageSize) break
-        pageNumber++
-    }
-    return allChildren
 }
