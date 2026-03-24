@@ -7,7 +7,7 @@ pipeline {
     choice(
       name: 'REPORT_SCOPE',
       choices: ['All Projects', 'Single Project'],
-      description: 'Generate SBOM Component Reports for all active DT projects, or a specific one'
+      description: 'Generate SBOM Component Reports for all active DT projects, or a specific project by name/version (collection projects automatically produce a merged report from their children)'
     )
     string(
       name: 'PROJECT_NAME',

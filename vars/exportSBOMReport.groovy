@@ -3,8 +3,9 @@
 /**
  * Export a SBOM Component Report (PDF) for a single Dependency-Track project.
  *
- * Downloads the CycloneDX BOM from DT and generates a PDF table of all
- * components with their version, type, PURL, and licenses.
+ * If the project has collectionLogic set, all active child BOMs are merged into
+ * one report (matching the behaviour of exportAllSBOMReports for collections).
+ * Otherwise the project's own BOM is used.
  *
  * @param projectName    Project name in Dependency-Track
  * @param projectVersion Project version in Dependency-Track
@@ -19,7 +20,7 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
                 -o projects.json
         """
 
-        def projects       = readJSON file: 'projects.json'
+        def projects        = readJSON file: 'projects.json'
         def matchingProject = projects.find { it.name == projectName && it.version == projectVersion }
 
         if (!matchingProject) {
@@ -29,18 +30,44 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
                             : "No projects found with name '${projectName}'")
         }
 
-        def projectUuid = matchingProject.uuid
-        echo "Project UUID: ${projectUuid}"
-
-        // Download the CycloneDX BOM for this project as JSON
-        sh """
-            curl -s -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${projectUuid}' \
-                -H "X-Api-Key: \$DT_API_KEY" \
-                -H "Accept: application/vnd.cyclonedx+json" \
-                -o bom.json
-        """
-
+        echo "Project UUID: ${matchingProject.uuid}"
         writeFile file: 'generate_sbom_report.py', text: libraryResource('scripts/generate_sbom_report.py')
+        sh 'rm -rf boms bom.json && mkdir -p reports'
+
+        if (matchingProject.collectionLogic) {
+            // ── Collection project: merge all active children into one report ──
+            def children = projects.findAll { p -> p.active && p.parent?.uuid == matchingProject.uuid }
+            echo "Collection project detected — ${children.size()} active children"
+
+            if (children) {
+                sh 'mkdir -p boms'
+                children.each { child ->
+                    def childSafe = child.name.replaceAll('[^a-zA-Z0-9.-]', '_')
+                    sh """
+                        curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
+                            -H "X-Api-Key: \$DT_API_KEY" \
+                            -H "Accept: application/vnd.cyclonedx+json" \
+                            -o "boms/${childSafe}.json"
+                    """
+                }
+            } else {
+                // No children — fall back to the collection parent's own BOM
+                sh """
+                    curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${matchingProject.uuid}' \
+                        -H "X-Api-Key: \$DT_API_KEY" \
+                        -H "Accept: application/vnd.cyclonedx+json" \
+                        -o bom.json
+                """
+            }
+        } else {
+            // ── Standalone project: single BOM ────────────────────────────────
+            sh """
+                curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${matchingProject.uuid}' \
+                    -H "X-Api-Key: \$DT_API_KEY" \
+                    -H "Accept: application/vnd.cyclonedx+json" \
+                    -o bom.json
+            """
+        }
 
         sh """
             docker run --rm --network=host \
