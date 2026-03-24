@@ -1,4 +1,4 @@
-@Library('sbom-uploader@ISR-24671-create-a-poc-using-dependency-track-to-investigate-sbom-and-vulnerability-management') _
+@Library('sbom-uploader') _
 
 pipeline {
     agent any
@@ -9,45 +9,15 @@ pipeline {
     }
 
     stages {
-        stage('Get All Projects') {
-            steps {
-                script {
-                    sh "curl -s -X GET ${DT_URL}/api/v1/project -H 'X-Api-Key: ${DT_API_KEY}' -o all-projects.json"
-                }
-            }
-        }
         stage('Generate All Reports') {
             steps {
                 script {
-                    def projects = readJSON file: 'all-projects.json'
+                    echo "Generating consolidated and individual vulnerability reports..."
+                    exportAllDTReports(env.DT_URL)
 
-                    echo "Found ${projects.size()} projects"
-
-                    projects.each { project ->
-                        def projectName = project.name
-                        def projectVersion = project.version ?: 'latest'
-
-                        echo "Generating report for: ${projectName} ${projectVersion}"
-
-                        try {
-                            // Generate report using shared library
-                            exportDTReport(projectName, projectVersion)
-
-                            // Rename PDF with project name
-                            def safeProjectName = projectName.replaceAll('[^a-zA-Z0-9-_]', '_')
-                            def safeVersion = projectVersion.replaceAll('[^a-zA-Z0-9-_.]', '_')
-                            def outputFile = "${safeProjectName}-${safeVersion}-vulnerability-report.pdf"
-
-                            sh "mv vulnerability-report.pdf ${outputFile}"
-
-                            // Archive individual report
-                            archiveArtifacts artifacts: outputFile, allowEmptyArchive: true
-
-                            echo "✓ Generated: ${outputFile}"
-                        } catch (Exception e) {
-                            echo "✗ Failed to generate report for ${projectName}: ${e.message}"
-                        }
-                    }
+                    // Archive all generated reports
+                    archiveArtifacts artifacts: 'reports/**/*.pdf', allowEmptyArchive: true
+                    echo "✓ Reports generated and archived"
                 }
             }
         }
