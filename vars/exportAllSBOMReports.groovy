@@ -41,9 +41,13 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             sh "mv sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
         }
 
-        // ── Pass 1: discover collections via /children API ──────────────
+        // ── Pass 1a: discover collections via /children API ─────────────
         def collectionMap = [:]   // parentUUID → [project:…, children:[…]]
         def childUUIDs    = [] as Set
+
+        // Index projects by UUID for quick lookup
+        def projectsByUUID = [:]
+        allProjects.each { p -> projectsByUUID[p.uuid] = p }
 
         allProjects.each { project ->
             // Fetch all children (paginated) inline to avoid CPS issues
@@ -74,14 +78,51 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             if (activeChildren) {
                 collectionMap[project.uuid] = [project: project, children: activeChildren]
                 activeChildren.each { childUUIDs.add(it.uuid) }
-                echo "Collection found: ${project.name} (${activeChildren.size()} active children)"
+                echo "Collection found via /children: ${project.name} (${activeChildren.size()} active children)"
                 activeChildren.each { child ->
                     echo "  Child: ${child.name} (uuid=${child.uuid})"
                 }
             }
         }
 
-        echo "Discovered ${collectionMap.size()} collection(s), ${childUUIDs.size()} child project(s)"
+        echo "After /children pass: ${collectionMap.size()} collection(s), ${childUUIDs.size()} child(ren)"
+
+        // ── Pass 1b: fallback — also check parent field from flat listing ──
+        // DT includes parent.uuid on child projects in the flat listing.
+        // This catches relationships that /children doesn't return (e.g.
+        // parent set via API PATCH but not indexed for /children).
+        allProjects.each { project ->
+            def parentUUID = project.parent?.uuid
+            if (parentUUID && project.active && !childUUIDs.contains(project.uuid)) {
+                // This child wasn't found via /children — add it
+                if (!collectionMap.containsKey(parentUUID)) {
+                    def parentProject = projectsByUUID[parentUUID]
+                    if (parentProject) {
+                        collectionMap[parentUUID] = [project: parentProject, children: []]
+                        echo "Collection found via parent field: ${parentProject.name} (uuid=${parentUUID})"
+                    } else {
+                        // Parent not in initial listing — fetch it
+                        echo "Parent ${parentUUID} not in project list, fetching..."
+                        def parentRaw = sh(script: """
+                            curl -s '${dtUrl}/api/v1/project/${parentUUID}' \
+                                -H "X-Api-Key: \$DT_API_KEY"
+                        """, returnStdout: true).trim()
+                        if (parentRaw && parentRaw.startsWith('{')) {
+                            def fetchedParent = readJSON text: parentRaw
+                            collectionMap[parentUUID] = [project: fetchedParent, children: []]
+                            echo "Collection found via parent field (fetched): ${fetchedParent.name}"
+                        }
+                    }
+                }
+                if (collectionMap.containsKey(parentUUID)) {
+                    collectionMap[parentUUID].children.add(project)
+                    childUUIDs.add(project.uuid)
+                    echo "  Child (from parent field): ${project.name} (uuid=${project.uuid})"
+                }
+            }
+        }
+
+        echo "Final: ${collectionMap.size()} collection(s), ${childUUIDs.size()} child project(s)"
 
         // ── Pass 2a: standalone projects — one report each ──────────────
         def standaloneProjects = allProjects.findAll { p ->
