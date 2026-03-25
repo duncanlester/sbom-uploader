@@ -13,7 +13,7 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
     withCredentials([string(credentialsId: 'dependency-track-api-key', variable: 'DT_API_KEY')]) {
 
         def allProjects = fetchAllDTProjects(dtUrl)
-        sh 'mkdir -p reports'eta
+        sh 'mkdir -p reports'
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
         // ── Pass 1: discover collections ──────────────────────────────
