@@ -70,7 +70,10 @@ services:
     ports:
       - "8083:8080"
     volumes:
-      - swagger:/usr/share/nginx/html/swagger # Mount a local 'swagger' directory
+      - swagger:/usr/share/nginx/html/swagger
+      - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
+      - ./dependencytrack-openapi.yaml:/usr/share/nginx/html/swagger/dependencytrack.yaml:ro
+      - ./jenkins-openapi.yaml:/usr/share/nginx/html/swagger/jenkins.yaml:ro
     environment:
       # Optional: set an initial file to load in the editor
       SWAGGER_FILE: /usr/share/nginx/html/swagger/openapi.yaml
@@ -81,21 +84,25 @@ services:
   swagger-ui:
     image: swaggerapi/swagger-ui:latest
     depends_on:
-      - swagger-editor
+      - dependency-track-apiserver
     container_name: swagger-ui
     ports:
       - "8084:8080"
     volumes:
-      # Mount the same local directory to share spec files
       - swagger:/usr/share/nginx/html/swagger
+      - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
+      - ./dependencytrack-openapi.yaml:/usr/share/nginx/html/swagger/dependencytrack.yaml:ro
+      - ./jenkins-openapi.yaml:/usr/share/nginx/html/swagger/jenkins.yaml:ro
     environment:
-      # Use the editor's file as the default spec for the UI
       SWAGGER_JSON_URL: http://localhost:8081/api/openapi.yaml
-      # Disable validation badge for local use if needed
       VALIDATOR_URL: none
     restart: unless-stopped
     networks:
       - dtrack-network
+# to access
+# Dependency Track API: http://localhost:8084/swagger/dependencytrack.yaml
+# Jenkins API: http://localhost:8084/swagger/jenkins.yaml
+# Watchtower API: http://localhost:8084/swagger/watchtower.yaml
 
 secrets:
   admin_password:

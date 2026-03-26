@@ -1,0 +1,66 @@
+openapi: 3.0.0
+info:
+  title: Dependency Track API
+  description: Dependency Track - Component analysis and Known Vulnerability (CVE) identification
+  version: 4.0.0
+servers:
+  - url: http://localhost:8081/api
+    description: Dependency Track API Server
+paths:
+  /v1/version:
+    get:
+      summary: Get application version
+      description: Returns version information about the running Dependency Track instance
+      tags:
+        - System
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+  /v1/project:
+    get:
+      summary: Get all projects
+      description: Returns a list of all projects
+      tags:
+        - Projects
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+    post:
+      summary: Create a new project
+      description: Creates a new project
+      tags:
+        - Projects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                version:
+                  type: string
+      responses:
+        "201":
+          description: Project created
+  /v1/swagger.json:
+    get:
+      summary: Get OpenAPI specification
+      description: Returns the full OpenAPI specification for Dependency Track API
+      tags:
+        - System
+      responses:
+        "200":
+          description: OpenAPI specification

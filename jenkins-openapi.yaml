@@ -1,0 +1,101 @@
+openapi: 3.0.0
+info:
+  title: Jenkins API
+  description: Jenkins REST API for job management, builds, plugins, and system operations
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Jenkins API Server
+paths:
+  /api/json:
+    get:
+      summary: Get Jenkins system information
+      description: Returns overall system information and status
+      tags:
+        - System
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+  /queue/api/json:
+    get:
+      summary: Get build queue
+      description: Returns the current build queue
+      tags:
+        - Queue
+      responses:
+        "200":
+          description: Successful response
+  /computer/api/json:
+    get:
+      summary: Get compute nodes
+      description: Returns information about all compute nodes
+      tags:
+        - Nodes
+      responses:
+        "200":
+          description: Successful response
+  /pluginManager/api/json:
+    get:
+      summary: Get plugins
+      description: Returns list of installed plugins
+      tags:
+        - Plugins
+      responses:
+        "200":
+          description: Successful response
+  /createItem:
+    post:
+      summary: Create a new job
+      description: Creates a new Jenkins job
+      tags:
+        - Jobs
+      parameters:
+        - name: name
+          in: query
+          description: Job name
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Job created
+  /job/{jobName}/api/json:
+    get:
+      summary: Get job details
+      description: Returns detailed information about a specific job
+      tags:
+        - Jobs
+      parameters:
+        - name: jobName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+  /job/{jobName}/build:
+    post:
+      summary: Trigger job build
+      description: Triggers a job build
+      tags:
+        - Jobs
+      parameters:
+        - name: jobName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Build triggered

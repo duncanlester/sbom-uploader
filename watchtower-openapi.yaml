@@ -1,0 +1,27 @@
+openapi: 3.0.0
+info:
+  title: Watchtower API
+  description: Watchtower automatically updates your Docker containers whenever a new image is available
+  version: 1.0.0
+servers:
+  - url: http://localhost:8484
+    description: Watchtower API Server
+paths:
+  /v1/update:
+    post:
+      summary: Trigger container update checks
+      description: Immediately triggers Watchtower to check for and update container images. Requires valid authentication token.
+      tags:
+        - Updates
+      parameters:
+        - name: token
+          in: query
+          description: Watchtower API authentication token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Update check initiated successfully
+        "401":
+          description: Unauthorized - invalid or missing token
