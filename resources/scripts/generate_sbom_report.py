@@ -3,14 +3,14 @@
 SBOM Component Report generator.
 
 Usage:
-    generate_sbom_report.py <report_title>
+    generate_sbom_report.py <report_title> [output_filename]
 
 Data sources (checked in order):
     boms/  — directory of CycloneDX JSON files, one per project (multi-project mode)
     bom.json — single CycloneDX JSON file (single-project mode)
 
 Output:
-    sbom-component-report.pdf
+    {output_filename} or sbom-component-report.pdf (if not specified)
 """
 import json
 import sys
@@ -72,7 +72,7 @@ def load_boms():
     return projects
 
 
-def main(report_title):
+def main(report_title, output_filename='sbom-component-report.pdf'):
     projects = load_boms()
     if not projects:
         print("No BOM files found (expected boms/ directory or bom.json)")
@@ -283,12 +283,14 @@ def main(report_title):
         if pdf.get_y() + 8 < pdf.h - 25:
             pdf.ln(8)
 
-    pdf.output("sbom-component-report.pdf")
+    pdf.output(output_filename)
     print("SBOM component report generated successfully")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: generate_sbom_report.py <report_title>")
+        print("Usage: generate_sbom_report.py <report_title> [output_filename]")
         sys.exit(1)
-    main(sys.argv[1])
+    report_title = sys.argv[1]
+    output_filename = sys.argv[2] if len(sys.argv) > 2 else 'sbom-component-report.pdf'
+    main(report_title, output_filename)

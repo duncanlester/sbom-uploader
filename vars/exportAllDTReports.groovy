@@ -138,7 +138,33 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             }
         }
 
-        // ── Pass 2b: standalone reports (not a collection, not a child) ──
+        // ── Pass 2b: individual reports for collection children ──────────
+        def allChildren = []
+        collectionMap.values().each { info ->
+            allChildren.addAll(info.children)
+        }
+
+        echo "=== COLLECTION CHILDREN (${allChildren.size()}) ==="
+        allChildren.each { echo "  Child: ${it.name} ${it.version}" }
+
+        allChildren.each { project ->
+            def projectName    = project.name
+            def projectVersion = project.version ?: 'unknown'
+            echo "Generating individual report for child: ${projectName} ${projectVersion}"
+            try {
+                exportDTReport(projectName, projectVersion, dtUrl)
+                def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
+                sh """
+                    mv vulnerability-report.pdf reports/${safeFilename}.pdf
+                    mv findings.json reports/${safeFilename}-findings.json
+                    mv metrics.json reports/${safeFilename}-metrics.json
+                """
+            } catch (Exception e) {
+                echo "WARNING: Failed to generate report for ${projectName} ${projectVersion}: ${e.message}"
+            }
+        }
+
+        // ── Pass 2c: standalone reports (not a collection, not a child) ──
         def standaloneProjects = allProjects.findAll { p ->
             p.active && !collectionMap.containsKey(p.uuid) && !childUUIDs.contains(p.uuid)
         }

@@ -49,7 +49,7 @@ def fetch_analysis(api_url, api_key, project_uuid, component_uuid, vuln_uuid):
     except Exception:
         return {}
 
-def main(project_name, project_version):
+def main(project_name, project_version, output_filename='vulnerability-report.pdf'):
     api_url = os.environ.get('DT_API_URL', '')
     api_key = os.environ.get('DT_API_KEY', '')
 
@@ -413,11 +413,14 @@ def main(project_name, project_version):
         pdf.set_text_color(22, 163, 74)
         pdf.cell(0, 12, "   [OK] No vulnerabilities found", ln=True, fill=True)
 
-    pdf.output("vulnerability-report.pdf")
+    pdf.output(output_filename)
     print("PDF generated successfully")
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: generate_vuln_report.py <project_name> <project_version>")
+        print("Usage: generate_vuln_report.py <project_name> <project_version> [output_filename]")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    project_name = sys.argv[1]
+    project_version = sys.argv[2]
+    output_filename = sys.argv[3] if len(sys.argv) > 3 else 'vulnerability-report.pdf'
+    main(project_name, project_version, output_filename)

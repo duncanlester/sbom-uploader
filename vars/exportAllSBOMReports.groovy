@@ -132,6 +132,34 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             inactiveProjects.each { p -> echo "  Inactive: ${p.name} ${p.version ?: 'unknown'}" }
         }
 
+        // ── Pass 2b: individual reports for collection children ──────────
+        def allChildren = []
+        collectionMap.values().each { info ->
+            allChildren.addAll(info.children)
+        }
+
+        echo "Generating individual SBOM reports for collection children (${allChildren.size()}):"
+        allChildren.each { project ->
+            def projectName    = project.name
+            def projectVersion = project.version ?: 'unknown'
+            def safeFilename   = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
+            echo "Generating SBOM report for child: ${projectName} ${projectVersion}"
+            try {
+                sh 'rm -rf boms bom.json'
+                sh """
+                    curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${project.uuid}' \
+                        -H "X-Api-Key: \$DT_API_KEY" \
+                        -H "Accept: application/vnd.cyclonedx+json" \
+                        -o bom.json
+                """
+                runPython("${projectName} ${projectVersion}", safeFilename)
+                echo "  -> OK: reports/${safeFilename}-sbom.pdf"
+            } catch (Exception e) {
+                echo "WARNING: Failed SBOM report for ${projectName} ${projectVersion}: ${e.message}"
+            }
+        }
+
+        // ── Pass 2c: standalone reports (not a collection, not a child) ──
         standaloneProjects.each { project ->
             def projectName    = project.name
             def projectVersion = project.version ?: 'unknown'
