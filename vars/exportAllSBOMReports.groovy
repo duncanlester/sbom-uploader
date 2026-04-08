@@ -50,104 +50,117 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             echo "  Collection: ${info.project.name} → ${info.children.size()} active children"
         }
 
-        // ── Build parallel report tasks ───────────────────────────────────
-        def reportTasks = [failFast: false]
-
-        // Grouped (merged BOM) reports for each collection
-        collectionMap.values().each { collectionInfo ->
-            def parent        = collectionInfo.project
-            def children      = collectionInfo.children
+        // ── Pass 2a: grouped (merged BOM) reports for each collection ────
+        collectionMap.values().each { info ->
+            def parent        = info.project
+            def children      = info.children
             def parentName    = parent.name
             def parentVersion = parent.version ?: 'unknown'
             def safeFilename  = "${parentName}-${parentVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
-            def taskWorkDir   = "tmp/${parent.uuid}"
 
-            reportTasks["grouped-${safeFilename}"] = {
-                echo "Generating grouped SBOM report: ${parentName} ${parentVersion} (${children.size()} children)"
-                try {
-                    sh "mkdir -p ${taskWorkDir}/boms"
-                    def downloadedCount = 0
-                    children.each { child ->
-                        def childSafe = child.name.replaceAll('[^a-zA-Z0-9.-]', '_')
-                        try {
-                            sh """
-                                curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
-                                    -H "X-Api-Key: \$DT_API_KEY" \
-                                    -H "Accept: application/vnd.cyclonedx+json" \
-                                    -o "${taskWorkDir}/boms/${childSafe}.json"
-                            """
-                            downloadedCount++
-                        } catch (Exception childErr) {
-                            echo "  WARNING: Could not download BOM for ${child.name}: ${childErr.message}"
-                        }
-                    }
-                    echo "  Downloaded ${downloadedCount}/${children.size()} child BOMs"
-                    if (downloadedCount > 0) {
+            echo "Generating grouped SBOM report: ${parentName} ${parentVersion} (${children.size()} children)"
+            try {
+                sh 'rm -rf boms bom.json && mkdir -p boms'
+                def downloadedCount = 0
+                children.each { child ->
+                    def childSafe = child.name.replaceAll('[^a-zA-Z0-9.-]', '_')
+                    try {
                         sh """
-                            docker run --rm --network=host \
-                                -v ${env.WORKSPACE}:/workspace:ro \
-                                -v ${env.WORKSPACE}/${taskWorkDir}:/data \
-                                -w /data \\
-                                sbom-report-builder:local \\
-                                python3 /workspace/generate_sbom_report.py "${parentName} ${parentVersion}"
+                            curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${child.uuid}' \
+                                -H "X-Api-Key: \$DT_API_KEY" \
+                                -H "Accept: application/vnd.cyclonedx+json" \
+                                -o "boms/${childSafe}.json"
                         """
-                        sh "mv ${taskWorkDir}/sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
-                        echo "  -> OK: reports/${safeFilename}-sbom.pdf"
-                    } else {
-                        echo "  SKIPPED: No child BOMs available for ${parentName}"
+                        downloadedCount++
+                    } catch (Exception childErr) {
+                        echo "  WARNING: Could not download BOM for ${child.name}: ${childErr.message}"
                     }
-                } catch (Exception e) {
-                    echo "WARNING: Failed grouped SBOM report for ${parentName} ${parentVersion}: ${e.message}"
                 }
+                echo "  Downloaded ${downloadedCount}/${children.size()} child BOMs"
+                if (downloadedCount > 0) {
+                    sh """
+                        docker run --rm --network=host \
+                            -v ${env.WORKSPACE}:/workspace \
+                            -w /workspace \\
+                            sbom-report-builder:local \\
+                            python3 generate_sbom_report.py "${parentName} ${parentVersion}"
+                    """
+                    sh "mv sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
+                    echo "  -> OK: reports/${safeFilename}-sbom.pdf"
+                } else {
+                    echo "  SKIPPED: No child BOMs available for ${parentName}"
+                }
+            } catch (Exception e) {
+                echo "WARNING: Failed grouped SBOM report for ${parentName} ${parentVersion}: ${e.message}"
             }
         }
 
-        // Individual reports for collection children + standalones
-        def projectsToReport = []
-        collectionMap.values().each { info -> projectsToReport.addAll(info.children) }
+        // ── Pass 2b: individual reports for collection children ──────────
+        def allChildren = []
+        collectionMap.values().each { info -> allChildren.addAll(info.children) }
+
+        echo "=== COLLECTION CHILDREN (${allChildren.size()}) ==="
+        allChildren.each { project ->
+            def projectName    = project.name
+            def projectVersion = project.version ?: 'unknown'
+            def safeFilename   = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
+            echo "Generating SBOM report for child: ${projectName} ${projectVersion}"
+            try {
+                sh 'rm -rf boms bom.json'
+                sh """
+                    curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${project.uuid}' \
+                        -H "X-Api-Key: \$DT_API_KEY" \
+                        -H "Accept: application/vnd.cyclonedx+json" \
+                        -o bom.json
+                """
+                sh """
+                    docker run --rm --network=host \
+                        -v ${env.WORKSPACE}:/workspace \
+                        -w /workspace \\
+                        sbom-report-builder:local \\
+                        python3 generate_sbom_report.py "${projectName} ${projectVersion}"
+                """
+                sh "mv sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
+                echo "  -> OK: reports/${safeFilename}-sbom.pdf"
+            } catch (Exception e) {
+                echo "WARNING: Failed SBOM report for ${projectName} ${projectVersion}: ${e.message}"
+            }
+        }
+
+        // ── Pass 2c: standalone reports (not a collection, not a child) ──
         def standaloneProjects = allProjects.findAll { p ->
             p.active && !collectionMap.containsKey(p.uuid) && !childUUIDs.contains(p.uuid)
         }
-        projectsToReport.addAll(standaloneProjects)
 
-        echo "=== INDIVIDUAL REPORTS: ${projectsToReport.size()} projects ==="
-
-        projectsToReport.each { projectEntry ->
-            def pName        = projectEntry.name
-            def pVersion     = projectEntry.version ?: 'unknown'
-            def pUuid        = projectEntry.uuid
-            def safeFilename = "${pName}-${pVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
-            def taskWorkDir  = "tmp/${pUuid}"
-
-            reportTasks["report-${safeFilename}"] = {
-                echo "Generating SBOM report: ${pName} ${pVersion}"
-                try {
-                    sh "mkdir -p ${taskWorkDir}"
-                    sh """
-                        curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${pUuid}' \
-                            -H "X-Api-Key: \$DT_API_KEY" \
-                            -H "Accept: application/vnd.cyclonedx+json" \
-                            -o "${taskWorkDir}/bom.json"
-                    """
-                    sh """
-                        docker run --rm --network=host \
-                            -v ${env.WORKSPACE}:/workspace:ro \
-                            -v ${env.WORKSPACE}/${taskWorkDir}:/data \
-                            -w /data \\
-                            sbom-report-builder:local \\
-                            python3 /workspace/generate_sbom_report.py "${pName} ${pVersion}"
-                    """
-                    sh "mv ${taskWorkDir}/sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
-                    echo "  -> OK: reports/${safeFilename}-sbom.pdf"
-                } catch (Exception e) {
-                    echo "WARNING: Failed SBOM report for ${pName} ${pVersion}: ${e.message}"
-                }
+        echo "=== STANDALONE PROJECTS (${standaloneProjects.size()}) ==="
+        standaloneProjects.each { project ->
+            def projectName    = project.name
+            def projectVersion = project.version ?: 'unknown'
+            def safeFilename   = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
+            echo "Generating SBOM report for standalone: ${projectName} ${projectVersion}"
+            try {
+                sh 'rm -rf boms bom.json'
+                sh """
+                    curl -sSf -X GET '${dtUrl}/api/v1/bom/cyclonedx/project/${project.uuid}' \
+                        -H "X-Api-Key: \$DT_API_KEY" \
+                        -H "Accept: application/vnd.cyclonedx+json" \
+                        -o bom.json
+                """
+                sh """
+                    docker run --rm --network=host \
+                        -v ${env.WORKSPACE}:/workspace \
+                        -w /workspace \\
+                        sbom-report-builder:local \\
+                        python3 generate_sbom_report.py "${projectName} ${projectVersion}"
+                """
+                sh "mv sbom-component-report.pdf reports/${safeFilename}-sbom.pdf"
+                echo "  -> OK: reports/${safeFilename}-sbom.pdf"
+            } catch (Exception e) {
+                echo "WARNING: Failed SBOM report for ${projectName} ${projectVersion}: ${e.message}"
             }
         }
 
-        parallel reportTasks
-
-        sh 'rm -rf tmp Dockerfile.sbom-report'
+        sh 'rm -f Dockerfile.sbom-report'
         archiveArtifacts artifacts: 'reports/*-sbom.pdf', allowEmptyArchive: true
         echo "All SBOM Component Reports generated — download from Build Artifacts"
     }
