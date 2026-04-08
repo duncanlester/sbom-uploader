@@ -16,6 +16,10 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
         sh 'mkdir -p reports'
         writeFile file: 'generate_vuln_report.py', text: libraryResource('scripts/generate_vuln_report.py')
 
+        // Build a local Docker image with fpdf2 pre-installed once, reused for every project
+        writeFile file: 'Dockerfile.vuln-report', text: 'FROM python:3.11-slim\nRUN pip install -q fpdf2\n'
+        sh 'docker build -t vuln-report-builder:local -f Dockerfile.vuln-report .'
+
         // ── Pass 1: discover collections ──────────────────────────────
         // Check EVERY project (including inactive) for children so we
         // don't miss a collection parent that happens to be inactive.
@@ -123,8 +127,8 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                         -w /workspace \\
                         -e DT_API_URL='${dtUrl}' \\
                         -e DT_API_KEY="\$DT_API_KEY" \\
-                        python:3.11-slim \\
-                        bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
+                        vuln-report-builder:local \\
+                        python3 generate_vuln_report.py "${projectName}" "${projectVersion}"
                 """
 
                 def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
@@ -173,8 +177,8 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                         -w /workspace \\
                         -e DT_API_URL='${dtUrl}' \\
                         -e DT_API_KEY="\$DT_API_KEY" \\
-                        python:3.11-slim \\
-                        bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
+                        vuln-report-builder:local \\
+                        python3 generate_vuln_report.py "${projectName}" "${projectVersion}"
                 """
 
                 def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
@@ -222,8 +226,8 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
                         -w /workspace \\
                         -e DT_API_URL='${dtUrl}' \\
                         -e DT_API_KEY="\$DT_API_KEY" \\
-                        python:3.11-slim \\
-                        bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
+                        vuln-report-builder:local \\
+                        python3 generate_vuln_report.py "${projectName}" "${projectVersion}"
                 """
 
                 def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
