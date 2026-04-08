@@ -57,7 +57,7 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
         writeJSON file: 'findings.json', json: findings
 
         // Generate PDF using external Python script
-        def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9._-]', '_')
+        def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
         sh """
             docker run --rm --network=host \
                 -v ${env.WORKSPACE}:/workspace \
@@ -65,11 +65,11 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
                 -e DT_API_URL='${dtUrl}' \
                 -e DT_API_KEY="\$DT_API_KEY" \
                 python:3.11-slim \
-                bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}" "${safeFilename}.pdf"'
+                bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}" && mv vulnerability-report.pdf "${safeFilename}.pdf"'
         """
 
         // Archive artifacts
-        archiveArtifacts artifacts: '*.pdf,findings.json,metrics.json', allowEmptyArchive: false
+        archiveArtifacts artifacts: "${safeFilename}.pdf,findings.json,metrics.json", allowEmptyArchive: false
 
         echo "Reports generated and archived as Jenkins build artifacts"
         echo ""

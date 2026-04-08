@@ -49,7 +49,7 @@ def fetch_analysis(api_url, api_key, project_uuid, component_uuid, vuln_uuid):
     except Exception:
         return {}
 
-def main(project_name, project_version, output_filename='vulnerability-report.pdf'):
+def main(project_name, project_version):
     api_url = os.environ.get('DT_API_URL', '')
     api_key = os.environ.get('DT_API_KEY', '')
 
@@ -252,6 +252,17 @@ def main(project_name, project_version, output_filename='vulnerability-report.pd
 
     cols = list(zip(col_names, col_widths))
 
+    # Mutable container so render_data_row closure can access current severity colour
+    current_sev_color = [(220, 38, 38)]
+
+    def render_col_header():
+        """Render the column header row using the current severity colour."""
+        pdf.set_fill_color(*current_sev_color[0])
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 7)
+        for i, (col_name, col_w) in enumerate(cols):
+            pdf.cell(col_w, 7, col_name, 1, 1 if i == len(cols) - 1 else 0, "C", True)
+
     def count_lines(text, col_w):
         """Word-wrap aware line count for a given column width."""
         if not text:
@@ -286,6 +297,7 @@ def main(project_name, project_version, output_filename='vulnerability-report.pd
 
         if pdf.will_page_break(row_h):
             pdf.add_page()
+            render_col_header()
             pdf.set_font("Helvetica", "", 7)
             y_start = pdf.get_y()
 
@@ -317,17 +329,15 @@ def main(project_name, project_version, output_filename='vulnerability-report.pd
         if not sev_vulns:
             continue
 
+        current_sev_color[0] = sev_color
+
         pdf.set_font("Helvetica", "B", 14)
         pdf.set_text_color(*sev_color)
         pdf.cell(0, 8, f"{sev_label} ({len(sev_vulns)})", ln=True)
         pdf.ln(2)
 
         # Table header
-        pdf.set_fill_color(*sev_color)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Helvetica", "B", 7)
-        for i, (col_name, col_w) in enumerate(cols):
-            pdf.cell(col_w, 7, col_name, 1, 1 if i == len(cols) - 1 else 0, "C", True)
+        render_col_header()
 
         # Table rows
         pdf.set_font("Helvetica", "", 7)
@@ -413,14 +423,11 @@ def main(project_name, project_version, output_filename='vulnerability-report.pd
         pdf.set_text_color(22, 163, 74)
         pdf.cell(0, 12, "   [OK] No vulnerabilities found", ln=True, fill=True)
 
-    pdf.output(output_filename)
+    pdf.output("vulnerability-report.pdf")
     print("PDF generated successfully")
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: generate_vuln_report.py <project_name> <project_version> [output_filename]")
+        print("Usage: generate_vuln_report.py <project_name> <project_version>")
         sys.exit(1)
-    project_name = sys.argv[1]
-    project_version = sys.argv[2]
-    output_filename = sys.argv[3] if len(sys.argv) > 3 else 'vulnerability-report.pdf'
-    main(project_name, project_version, output_filename)
+    main(sys.argv[1], sys.argv[2])

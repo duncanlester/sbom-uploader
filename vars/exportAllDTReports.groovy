@@ -152,7 +152,31 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             def projectVersion = project.version ?: 'unknown'
             echo "Generating individual report for child: ${projectName} ${projectVersion}"
             try {
-                exportDTReport(projectName, projectVersion, dtUrl)
+                def findingsJson = sh(script: """
+                    curl -s '${dtUrl}/api/v1/finding/project/${project.uuid}?suppressed=true' \
+                        -H "X-Api-Key: \$DT_API_KEY"
+                """, returnStdout: true).trim()
+
+                def metricsJson = sh(script: """
+                    curl -s '${dtUrl}/api/v1/metrics/project/${project.uuid}/current' \
+                        -H "X-Api-Key: \$DT_API_KEY"
+                """, returnStdout: true).trim()
+
+                def findings = readJSON text: (findingsJson ?: '[]')
+                findings.each { f -> f.projectUuid = project.uuid }
+                writeJSON file: 'findings.json', json: findings
+                writeFile file: 'metrics.json', text: (metricsJson ?: '{}')
+
+                sh """
+                    docker run --rm --network=host \
+                        -v ${env.WORKSPACE}:/workspace \
+                        -w /workspace \\
+                        -e DT_API_URL='${dtUrl}' \\
+                        -e DT_API_KEY="\$DT_API_KEY" \\
+                        python:3.11-slim \\
+                        bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
+                """
+
                 def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
                 sh """
                     mv vulnerability-report.pdf reports/${safeFilename}.pdf
@@ -177,7 +201,31 @@ def call(String dtUrl = 'http://w-work-19.rdmz.isridev.com:8081') {
             def projectVersion = project.version ?: 'unknown'
             echo "Generating report for: ${projectName} ${projectVersion}"
             try {
-                exportDTReport(projectName, projectVersion, dtUrl)
+                def findingsJson = sh(script: """
+                    curl -s '${dtUrl}/api/v1/finding/project/${project.uuid}?suppressed=true' \
+                        -H "X-Api-Key: \$DT_API_KEY"
+                """, returnStdout: true).trim()
+
+                def metricsJson = sh(script: """
+                    curl -s '${dtUrl}/api/v1/metrics/project/${project.uuid}/current' \
+                        -H "X-Api-Key: \$DT_API_KEY"
+                """, returnStdout: true).trim()
+
+                def findings = readJSON text: (findingsJson ?: '[]')
+                findings.each { f -> f.projectUuid = project.uuid }
+                writeJSON file: 'findings.json', json: findings
+                writeFile file: 'metrics.json', text: (metricsJson ?: '{}')
+
+                sh """
+                    docker run --rm --network=host \
+                        -v ${env.WORKSPACE}:/workspace \
+                        -w /workspace \\
+                        -e DT_API_URL='${dtUrl}' \\
+                        -e DT_API_KEY="\$DT_API_KEY" \\
+                        python:3.11-slim \\
+                        bash -c 'pip install -q fpdf2 && python3 generate_vuln_report.py "${projectName}" "${projectVersion}"'
+                """
+
                 def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9.-]', '_')
                 sh """
                     mv vulnerability-report.pdf reports/${safeFilename}.pdf

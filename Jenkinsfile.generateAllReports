@@ -3,47 +3,16 @@
 pipeline {
     agent any
 
-    parameters {
-        choice(
-            name: 'REPORT_SCOPE',
-            choices: ['All Projects', 'Single Project'],
-            description: 'Generate vulnerability reports for all active DT projects, or a specific project by name/version (collection projects automatically produce a merged report from their children)'
-        )
-        string(
-            name: 'PROJECT_NAME',
-            defaultValue: '',
-            description: 'Project name in Dependency-Track (only used when REPORT_SCOPE = Single Project)'
-        )
-        string(
-            name: 'PROJECT_VERSION',
-            defaultValue: '',
-            description: 'Project version in Dependency-Track (only used when REPORT_SCOPE = Single Project)'
-        )
-    }
-
     environment {
-        DT_API_KEY = credentials('dependency-track-api-key')
-        DT_URL = 'http://w-work-19.rdmz.isridev.com:8081'
+        DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+        DEPENDENCY_TRACK_API_URL = 'http://dtrack-apiserver:8080'
     }
 
     stages {
         stage('Generate Vulnerability Reports') {
             steps {
                 script {
-                    if (params.REPORT_SCOPE == 'All Projects') {
-                        echo "Generating consolidated and individual vulnerability reports for all projects..."
-                        exportAllDTReports(env.DT_URL)
-                    } else {
-                        if (!params.PROJECT_NAME || !params.PROJECT_VERSION) {
-                            error 'PROJECT_NAME and PROJECT_VERSION are required for Single Project scope'
-                        }
-                        echo "Generating vulnerability report for: ${params.PROJECT_NAME} ${params.PROJECT_VERSION}"
-                        exportDTReport(params.PROJECT_NAME, params.PROJECT_VERSION)
-                    }
-
-                    // Archive all generated reports
-                    archiveArtifacts artifacts: 'reports/**/*.pdf', allowEmptyArchive: true
-                    echo "✓ Reports generated and archived"
+                    exportAllDTReports(env.DEPENDENCY_TRACK_API_URL)
                 }
             }
         }

@@ -64,16 +64,15 @@ def call(String projectName, String projectVersion, String dtUrl = 'http://w-wor
             """
         }
 
-        def safeFilename = "${projectName}-${projectVersion}".replaceAll('[^a-zA-Z0-9._-]', '_')
         sh """
             docker run --rm --network=host \
                 -v ${env.WORKSPACE}:/workspace \
                 -w /workspace \
                 python:3.11-slim \
-                bash -c 'pip install -q fpdf2 && python3 generate_sbom_report.py "${projectName} ${projectVersion}" "${safeFilename}.pdf"'
+                bash -c 'pip install -q fpdf2 && python3 generate_sbom_report.py "${projectName} ${projectVersion}"'
         """
 
-        archiveArtifacts artifacts: '*.pdf', allowEmptyArchive: false
+        archiveArtifacts artifacts: 'sbom-component-report.pdf', allowEmptyArchive: false
         echo "SBOM Component Report generated — download from Build Artifacts"
     }
 }

@@ -1,0 +1,45 @@
+@Library('sbom-uploader') _
+
+pipeline {
+  agent any
+
+  parameters {
+    string(
+      name: 'PROJECT_NAME',
+      defaultValue: '',
+      description: 'Project name in Dependency-Track'
+    )
+    string(
+      name: 'PROJECT_VERSION',
+      defaultValue: '',
+      description: 'Project version in Dependency-Track'
+    )
+  }
+
+  environment {
+    DEPENDENCY_TRACK_API_KEY = credentials('dependency-track-api-key')
+    DEPENDENCY_TRACK_API_URL = 'http://dtrack-apiserver:8080'
+  }
+
+  stages {
+    stage('Generate Vulnerability Report') {
+      steps {
+        script {
+          if (!params.PROJECT_NAME || !params.PROJECT_VERSION) {
+            error 'PROJECT_NAME and PROJECT_VERSION are required'
+          }
+          exportDTReport(
+            params.PROJECT_NAME,
+            params.PROJECT_VERSION,
+            env.DEPENDENCY_TRACK_API_URL
+          )
+        }
+      }
+    }
+  }
+  post {
+    always {
+      deleteDir()
+    }
+  }
+}

@@ -72,7 +72,7 @@ def load_boms():
     return projects
 
 
-def main(report_title, output_filename='sbom-component-report.pdf'):
+def main(report_title):
     projects = load_boms()
     if not projects:
         print("No BOM files found (expected boms/ directory or bom.json)")
@@ -283,14 +283,12 @@ def main(report_title, output_filename='sbom-component-report.pdf'):
         if pdf.get_y() + 8 < pdf.h - 25:
             pdf.ln(8)
 
-    pdf.output(output_filename)
+    pdf.output("sbom-component-report.pdf")
     print("SBOM component report generated successfully")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: generate_sbom_report.py <report_title> [output_filename]")
+        print("Usage: generate_sbom_report.py <report_title>")
         sys.exit(1)
-    report_title = sys.argv[1]
-    output_filename = sys.argv[2] if len(sys.argv) > 2 else 'sbom-component-report.pdf'
-    main(report_title, output_filename)
+    main(sys.argv[1])
