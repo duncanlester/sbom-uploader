@@ -58,12 +58,13 @@ def tip(body: str, title: str = "Tip") -> str:
 
 
 def code(content: str, lang: str = "xml", title: str = "") -> str:
-    title_part = f":title={title}" if title else ""
-    return f"{{code:{lang}{title_part}}}\n{content}\n{{code}}\n\n"
+    title_part = f"|title={title}" if title else ""
+    return f"{{code:language={lang}{title_part}}}\n{content}\n{{code}}\n\n"
 
 
 def expand(body: str, title: str = "Show more") -> str:
-    return f"{{expand:title={title}}}\n{body}\n{{expand}}\n\n"
+    # Strip trailing whitespace from body so there's no blank line before {expand}
+    return f"{{expand:title={title}}}\n{body.rstrip()}\n{{expand}}\n\n"
 
 
 def status_badge(colour: str, title: str) -> str:

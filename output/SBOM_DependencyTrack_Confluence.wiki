@@ -32,7 +32,7 @@ h2. SBOM Generation
 h3. Maven Projects
 The [CycloneDX Maven Plugin|https://github.com/CycloneDX/cyclonedx-maven-plugin] is added to the project POM. It runs automatically during the *package* phase and outputs a CycloneDX JSON SBOM at `target/bom.json`.
 
-{code:xml:title=pom.xml — CycloneDX Maven Plugin}
+{code:language=xml|title=pom.xml — CycloneDX Maven Plugin}
 <plugin>
     <groupId>org.cyclonedx</groupId>
     <artifactId>cyclonedx-maven-plugin</artifactId>
@@ -63,7 +63,7 @@ The [CycloneDX Maven Plugin|https://github.com/CycloneDX/cyclonedx-maven-plugin]
 h3. Non-Maven Projects (cdxgen)
 For Node.js, Python, Go, and other ecosystems the [cdxgen|https://github.com/CycloneDX/cdxgen] tool runs inside a Docker container as a Jenkins pipeline step — no installation required.
 
-{code:groovy:title=Jenkinsfile — cdxgenRepo shared library step}
+{code:language=groovy|title=Jenkinsfile — cdxgenRepo shared library step}
 // Jenkinsfile (non-Maven project)
 cdxgenRepo(
     projectName: "my-nodejs-app",
@@ -177,11 +177,9 @@ h3. Analysis Fields
 
 h3. Example Analysis Comment
 {expand:title=Show example comment}
-{code:none:title=Example analyst comment}
+{code:language=none|title=Example analyst comment}
 CVSS 9.8 — dependency is included in the WAR but the vulnerable endpoint (/admin/actuator) is blocked at the network perimeter (WAF rule WAF-042). Risk accepted pending upgrade to 3.2.1 in Q3 sprint. Owner: platform-team@example.com
 {code}
-
-
 {expand}
 
 {tip:title=Analysis Propagation}
@@ -233,7 +231,7 @@ h3. Shared Library Steps
 |`uploadPluginSBOMs`|`vars/uploadPluginSBOMs.groovy`|Batch-upload plugin SBOMs to Dependency-Track|
 
 h3. Example Jenkinsfile
-{code:groovy:title=Jenkinsfile.java — Maven + Dependency-Track upload}
+{code:language=groovy|title=Jenkinsfile.java — Maven + Dependency-Track upload}
 // Jenkinsfile.java — upload SBOM after Maven build
 pipeline {
     stages {
@@ -335,4 +333,4 @@ The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, an
 
 ----
 
-_Generated on 23 April 2026 at 10:23 by the SBOM pipeline documentation generator._
+_Generated on 23 April 2026 at 11:22 by the SBOM pipeline documentation generator._
