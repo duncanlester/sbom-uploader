@@ -69,7 +69,17 @@ def expand(body: str, title: str = "Show more") -> str:
 
 
 def status_badge(colour: str, title: str) -> str:
-    return f"{{status:colour={colour}|title={title}|subtle=true}}"
+    # {status} macros use | as param separators which breaks table cell parsing.
+    # Use {color:X}*text*{color} instead — safe in all contexts.
+    _colour_map = {
+        "Green":  "green",
+        "Blue":   "blue",
+        "Red":    "red",
+        "Yellow": "darkorange",
+        "Grey":   "gray",
+    }
+    c = _colour_map.get(colour, "gray")
+    return f"{{color:{c}}}*{title}*{{color}}"
 
 
 def screenshot(filename: str, width: int = 700, alt: str = "") -> str:
@@ -252,7 +262,7 @@ def section_dt_overview() -> str:
         + info(
             "All feeds are queried automatically by Dependency-Track on a rolling schedule. "
             "You can also trigger an immediate re-analysis via the UI or REST API "
-            "(`PUT /api/v1/project/{uuid}/metrics/current`) after a feed update.",
+            "(`PUT /api/v1/project/<uuid>/metrics/current`) after a feed update.",
             title="Automatic Feed Refresh",
         )
     )
@@ -461,13 +471,13 @@ def section_swagger_api() -> str:
         "integrate with Dependency-Track.\n\n"
         + table_row("Integration", "API Endpoint(s) Used", "What It Enables", header=True)
         + table_row("*Jira / Ticketing*",
-                    "`GET /api/v1/finding/{project}` + `POST /api/v1/analysis`",
+                    "`GET /api/v1/finding/<project>` + `POST /api/v1/analysis`",
                     "Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved")
         + table_row("*Splunk / Elasticsearch*",
-                    "`GET /api/v1/finding/{project}` + notification webhooks",
+                    "`GET /api/v1/finding/<project>` + notification webhooks",
                     "Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting")
         + table_row("*Grafana Dashboards*",
-                    "`GET /api/v1/metrics/portfolio` + `GET /api/v1/metrics/project/{uuid}`",
+                    "`GET /api/v1/metrics/portfolio` + `GET /api/v1/metrics/project/<uuid>`",
                     "Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility")
         + table_row("*MS Teams / Slack*",
                     "`POST /api/v1/notification/publisher`",

@@ -1,6 +1,6 @@
 h1. SBOM Pipeline & Vulnerability Management with Dependency-Track
 {info:title=Document Information}
-*Document Owner:* Platform Engineering Team | *Last Updated:* 23 April 2026 | *Status:* {status:colour=Green|title=ACTIVE|subtle=true}
+*Document Owner:* Platform Engineering Team | *Last Updated:* 23 April 2026 | *Status:* {color:green}*ACTIVE*{color}
 {info}
 
 This page describes the end-to-end Software Bill of Materials (SBOM) pipeline that automatically generates, uploads, and tracks vulnerabilities across all managed repositories using [Dependency-Track|https://dependencytrack.org].
@@ -129,7 +129,7 @@ Dependency-Track queries the following feeds automatically. New vulnerabilities 
 |*VulnDB*|Risk Based Security|All ecosystems|Optional commercial feed — broader coverage and earlier disclosure than NVD.|
 
 {info:title=Automatic Feed Refresh}
-All feeds are queried automatically by Dependency-Track on a rolling schedule. You can also trigger an immediate re-analysis via the UI or REST API ({{PUT /api/v1/project/{uuid}/metrics/current}}) after a feed update.
+All feeds are queried automatically by Dependency-Track on a rolling schedule. You can also trigger an immediate re-analysis via the UI or REST API ({{PUT /api/v1/project/<uuid>/metrics/current}}) after a feed update.
 {info}
 
 
@@ -149,11 +149,11 @@ When a new SBOM is uploaded Dependency-Track immediately analyses all components
 
 h3. Analysis States
 ||State||Colour||Meaning||
-|{status:colour=Green|title=NOT_AFFECTED|subtle=true}|Green|Component is present but the vulnerability does not apply in this context|
-|{status:colour=Blue|title=IN_TRIAGE|subtle=true}|Blue|Under active investigation — do not suppress yet|
-|{status:colour=Red|title=EXPLOITABLE|subtle=true}|Red|Confirmed exploitable — remediation required|
-|{status:colour=Yellow|title=FALSE_POSITIVE|subtle=true}|Yellow|Incorrect match by the scanner — documented and suppressed|
-|{status:colour=Grey|title=NOT_SET|subtle=true}|Grey|Default — no analysis recorded yet|
+|{color:green}*NOT_AFFECTED*{color}|Green|Component is present but the vulnerability does not apply in this context|
+|{color:blue}*IN_TRIAGE*{color}|Blue|Under active investigation — do not suppress yet|
+|{color:red}*EXPLOITABLE*{color}|Red|Confirmed exploitable — remediation required|
+|{color:darkorange}*FALSE_POSITIVE*{color}|Yellow|Incorrect match by the scanner — documented and suppressed|
+|{color:gray}*NOT_SET*{color}|Grey|Default — no analysis recorded yet|
 
 {note:title=Audit Trail}
 All state changes are immutable and timestamped. The full audit trail is available via the REST API and visible in the Finding detail panel.
@@ -199,9 +199,9 @@ Lists all current findings from Dependency-Track with analysis state, suppressio
 Sample findings:
 
 ||CVE||Severity||Component||Version||Fix Version||Status||
-|CVE-2021-44228|{status:colour=Red|title=CRITICAL|subtle=true}|log4j-core|2.14.1|2.17.1|{status:colour=Green|title=PATCHED|subtle=true}|
-|CVE-2022-42003|{status:colour=Yellow|title=HIGH|subtle=true}|jackson-databind|2.13.2|2.13.4.1|{status:colour=Blue|title=IN_TRIAGE|subtle=true}|
-|CVE-2023-34062|{status:colour=Yellow|title=HIGH|subtle=true}|reactor-netty-http|1.0.38|1.0.39|{status:colour=Green|title=NOT_AFFECTED|subtle=true}|
+|CVE-2021-44228|{color:red}*CRITICAL*{color}|log4j-core|2.14.1|2.17.1|{color:green}*PATCHED*{color}|
+|CVE-2022-42003|{color:darkorange}*HIGH*{color}|jackson-databind|2.13.2|2.13.4.1|{color:blue}*IN_TRIAGE*{color}|
+|CVE-2023-34062|{color:darkorange}*HIGH*{color}|reactor-netty-http|1.0.38|1.0.39|{color:green}*NOT_AFFECTED*{color}|
 
 h3. SBOM Component Report
 A full inventory of every component, its version, package URL, and applicable licences — suitable for regulatory submissions and supply-chain audits.
@@ -298,9 +298,9 @@ h3. Integration Ecosystem
 The Dependency-Track REST API enables integration with ticketing systems (Jira), SIEMs (Splunk, Elasticsearch), and executive dashboards — giving full visibility from developer laptop to boardroom. Any tool that can make an HTTP request can integrate with Dependency-Track.
 
 ||Integration||API Endpoint(s) Used||What It Enables||
-|*Jira / Ticketing*|{{GET /api/v1/finding/{project}}} + {{POST /api/v1/analysis}}|Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved|
-|*Splunk / Elasticsearch*|{{GET /api/v1/finding/{project}}} + notification webhooks|Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting|
-|*Grafana Dashboards*|{{GET /api/v1/metrics/portfolio}} + {{GET /api/v1/metrics/project/{uuid}}}|Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility|
+|*Jira / Ticketing*|{{GET /api/v1/finding/<project>}} + {{POST /api/v1/analysis}}|Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved|
+|*Splunk / Elasticsearch*|{{GET /api/v1/finding/<project>}} + notification webhooks|Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting|
+|*Grafana Dashboards*|{{GET /api/v1/metrics/portfolio}} + {{GET /api/v1/metrics/project/<uuid>}}|Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility|
 |*MS Teams / Slack*|{{POST /api/v1/notification/publisher}}|Configure webhook notifications for new Critical or High findings so the right team is alerted immediately|
 |*PagerDuty / OpsGenie*|Outbound webhook from notification rules|Trigger on-call alerts when newly introduced Critical vulnerabilities are detected in production-bound builds|
 |*Custom / Executive Dashboards*|{{GET /api/v1/metrics/portfolio}} + {{GET /api/v1/project}}|Schedule daily metrics exports; feed bespoke reporting tools or management dashboards with live risk data|
@@ -333,4 +333,4 @@ The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, an
 
 ----
 
-_Generated on 23 April 2026 at 11:36 by the SBOM pipeline documentation generator._
+_Generated on 23 April 2026 at 11:51 by the SBOM pipeline documentation generator._
