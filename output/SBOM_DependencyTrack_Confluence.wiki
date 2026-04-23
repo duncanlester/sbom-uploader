@@ -1,0 +1,338 @@
+h1. SBOM Pipeline & Vulnerability Management with Dependency-Track
+{info:title=Document Information}
+*Document Owner:* Platform Engineering Team | *Last Updated:* 23 April 2026 | *Status:* {status:colour=Green|title=ACTIVE|subtle=true}
+{info}
+
+This page describes the end-to-end Software Bill of Materials (SBOM) pipeline that automatically generates, uploads, and tracks vulnerabilities across all managed repositories using [Dependency-Track|https://dependencytrack.org].
+
+{toc:maxLevel=3|style=disc|minLevel=2}
+
+
+----
+
+
+h2. What is an SBOM?
+A *Software Bill of Materials (SBOM)* is a formal, machine-readable inventory of every component, library, and dependency within a software product — along with their versions, licences, and known vulnerabilities.
+
+* *Transparency* — know exactly what is inside every artefact
+* *Compliance* — satisfy regulatory and supply-chain audit requirements
+* *Risk Reduction* — identify and remediate vulnerabilities proactively
+* *Licence Governance* — detect licence conflicts before they reach production
+* *Faster Response* — immediately know which projects are affected when a new CVE is published
+
+{note:title=SBOM Standard}
+The [CycloneDX|https://cyclonedx.org] format is used throughout this pipeline (JSON serialisation). CycloneDX is an OWASP standard and is natively supported by Dependency-Track.
+{note}
+
+
+----
+
+
+h2. SBOM Generation
+h3. Maven Projects
+The [CycloneDX Maven Plugin|https://github.com/CycloneDX/cyclonedx-maven-plugin] is added to the project POM. It runs automatically during the *package* phase and outputs a CycloneDX JSON SBOM at `target/bom.json`.
+
+{code:xml:title=pom.xml — CycloneDX Maven Plugin}
+<plugin>
+    <groupId>org.cyclonedx</groupId>
+    <artifactId>cyclonedx-maven-plugin</artifactId>
+    <version>2.9.1</version>
+    <configuration>
+        <projectType>library</projectType>
+        <schemaVersion>1.4</schemaVersion>
+        <includeBomSerialNumber>true</includeBomSerialNumber>
+        <includeCompileScope>true</includeCompileScope>
+        <includeTestScope>false</includeTestScope>
+        <includeRuntimeScope>true</includeRuntimeScope>
+        <includeSystemScope>true</includeSystemScope>
+        <includeProvidedScope>true</includeProvidedScope>
+        <includeLicenseText>false</includeLicenseText>
+        <outputFormat>all</outputFormat>
+    </configuration>
+    <executions>
+        <execution>
+            <phase>package</phase>
+            <goals>
+                <goal>makeAggregateBom</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+{code}
+
+h3. Non-Maven Projects (cdxgen)
+For Node.js, Python, Go, and other ecosystems the [cdxgen|https://github.com/CycloneDX/cdxgen] tool runs inside a Docker container as a Jenkins pipeline step — no installation required.
+
+{code:groovy:title=Jenkinsfile — cdxgenRepo shared library step}
+// Jenkinsfile (non-Maven project)
+cdxgenRepo(
+    projectName: "my-nodejs-app",
+    projectVersion: "1.0.0",
+    dtUrl: "https://dependencytrack.example.com",
+    dtApiKey: credentials('DT_API_KEY')
+)
+{code}
+
+{tip:title=Multi-Language Support}
+cdxgen supports over 20 package ecosystems including npm, pip, Gradle, Go modules, Cargo, and more. The Jenkins shared library (`vars/cdxgenRepo.groovy`) abstracts the Docker invocation.
+{tip}
+
+h3. Docker / Container Images (Syft + Grype)
+*Syft* (Anchore) scans Docker image layers to generate a container SBOM, capturing every OS package and language library baked into the image. *Grype* (also Anchore) consumes the Syft SBOM for immediate vulnerability triage.
+
+* Scans a pulled or locally built Docker image via the `syftImage()` shared-library step
+* Identifies OS packages (Alpine/Debian/RHEL) *and* language libraries inside the image
+* Outputs CycloneDX JSON — uploads to Dependency-Track via `uploadSBOM()`
+* Run `grypeScan()` immediately after to get a pre-upload vulnerability report
+
+h3. SBOM Generation Tools — Summary
+||Tool||Type||Use Case||Jenkins Step||
+|*cdxgen*|SBOM Generator|Polyglot — Java, Node.js, Python, Go, .NET, Ruby, Cargo & more|`cdxgenRepo()`|
+|*CycloneDX Maven Plugin*|SBOM Generator|Java/Maven — exact resolved-dependency-tree SBOM at build time|Auto via `mvn package`|
+|*Syft (Anchore)*|SBOM Generator|Docker/container images — scans image layers|`syftImage()`|
+|*Grype (Anchore)*|Vuln Scanner|Consumes a Syft/cdxgen SBOM; pre-upload vulnerability triage|`grypeScan()`|
+|*CycloneDX Gradle/Node/.NET*|SBOM Generator|Ecosystem-specific build plugins for Gradle, npm, and .NET SDK|Language-native|
+
+
+----
+
+
+h2. Dependency-Track Overview
+!https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/screenshots/dashboard.png|width=700,alt=Dependency-Track Portfolio Dashboard!
+
+Dependency-Track is an OWASP flagship project that provides a continuous component analysis platform. Once an SBOM is uploaded it:
+
+# Parses every component and resolves it against its package ecosystem
+# Queries vulnerability intelligence sources (NVD, OSV, GitHub Advisories, VulnDB)
+# Calculates inherited risk for each project and component
+# Surfaces findings in a searchable, filterable dashboard
+# Triggers policy violations for licence and version rules
+
+!https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/screenshots/collection-projects-details.png|width=700,alt=Collection Project Detail!
+
+h3. Key Capabilities
+||Capability||Description||
+|Portfolio Dashboard|Aggregate risk view across all projects|
+|Policy Engine|Enforce licence, severity, and CVSS threshold rules|
+|VEX / Analysis|Record analyst decisions against each finding|
+|Notifications|Webhook, e-mail, and Slack alerts on new findings|
+|REST API|Full programmatic access — CI/CD and SIEM integration|
+
+h3. Vulnerability Intelligence Sources
+Dependency-Track queries the following feeds automatically. New vulnerabilities are matched against your entire component inventory the moment a feed refreshes — no manual CVE searching required.
+
+||Source||Maintained By||Scope||Notes||
+|*NVD* — National Vulnerability Database|NIST|All languages & ecosystems|Canonical CVE registry with CVSS v2/v3/v4. Primary authoritative source.|
+|*OSV* — Open Source Vulnerabilities|Google|PyPI, npm, Maven, Go, Cargo, Gems|Open DB with precise package-URL matching; often earlier disclosure than NVD.|
+|*GitHub Advisory Database*|GitHub / community|GitHub-hosted packages|Curated advisories tied directly to package versions; highly accurate matching.|
+|*Sonatype OSS Index*|Sonatype|Maven Central, npm|Component intelligence with licence metadata; strong Java coverage.|
+|*VulnDB*|Risk Based Security|All ecosystems|Optional commercial feed — broader coverage and earlier disclosure than NVD.|
+
+{info:title=Automatic Feed Refresh}
+All feeds are queried automatically by Dependency-Track on a rolling schedule. You can also trigger an immediate re-analysis via the UI or REST API (`PUT /api/v1/project/{uuid}/metrics/current`) after a feed update.
+{info}
+
+
+----
+
+
+h2. Vulnerability Triage Workflow
+!https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/screenshots/vulnerabilities.png|width=700,alt=Vulnerability Findings List!
+
+When a new SBOM is uploaded Dependency-Track immediately analyses all components and surfaces findings. The recommended triage process:
+
+# *Review* — open the Findings tab for the project and review by severity (Critical first)
+# *Investigate* — click a finding to see CVE details, CVSS vector, affected versions, and fix version
+# *Analyse* — record an analysis state and justification (see below)
+# *Remediate or Suppress* — update the dependency version or suppress with documented reason
+# *Verify* — re-run the pipeline; the finding should clear once the fixed version is uploaded
+
+h3. Analysis States
+||State||Colour||Meaning||
+|{status:colour=Green|title=NOT_AFFECTED|subtle=true}|Green|Component is present but the vulnerability does not apply in this context|
+|{status:colour=Blue|title=IN_TRIAGE|subtle=true}|Blue|Under active investigation — do not suppress yet|
+|{status:colour=Red|title=EXPLOITABLE|subtle=true}|Red|Confirmed exploitable — remediation required|
+|{status:colour=Yellow|title=FALSE_POSITIVE|subtle=true}|Yellow|Incorrect match by the scanner — documented and suppressed|
+|{status:colour=Grey|title=NOT_SET|subtle=true}|Grey|Default — no analysis recorded yet|
+
+{note:title=Audit Trail}
+All state changes are immutable and timestamped. The full audit trail is available via the REST API and visible in the Finding detail panel.
+{note}
+
+
+----
+
+
+h2. Recording Analysis & Comments
+!https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/screenshots/audit-finding-project.png|width=700,alt=Audit Finding Panel!
+
+The Analysis panel in Dependency-Track lets each team record a *structured* decision against every finding. This replaces informal spreadsheet tracking with a searchable, API-queryable audit log.
+
+h3. Analysis Fields
+* *State* — one of: NOT_AFFECTED, IN_TRIAGE, EXPLOITABLE, FALSE_POSITIVE
+* *Justification* — controlled vocabulary: CODE_NOT_REACHABLE, PROTECTED_BY_MITIGATING_CONTROL, etc.
+* *Response* — WILL_NOT_FIX, UPDATE, ROLLBACK, WORKAROUND_AVAILABLE, etc.
+* *Detail* — free-text comment with full context (who, what, why, when)
+* *Suppressed* — hides the finding from the active list once analysed
+
+h3. Example Analysis Comment
+{expand:title=Show example comment}
+{code:none:title=Example analyst comment}
+CVSS 9.8 — dependency is included in the WAR but the vulnerable endpoint (/admin/actuator) is blocked at the network perimeter (WAF rule WAF-042). Risk accepted pending upgrade to 3.2.1 in Q3 sprint. Owner: platform-team@example.com
+{code}
+
+
+{expand}
+
+{tip:title=Analysis Propagation}
+All comments and state changes are propagated to *all* projects that share the same component version — so you only need to analyse once.
+{tip}
+
+
+----
+
+
+h2. Reporting
+The Jenkins pipeline generates two PDF reports on every build:
+
+h3. Security Analysis Report
+Lists all current findings from Dependency-Track with analysis state, suppression flag, and analyst comments. Grouped by project and severity.
+
+Sample findings:
+
+||CVE||Severity||Component||Version||Fix Version||Status||
+|CVE-2021-44228|{status:colour=Red|title=CRITICAL|subtle=true}|log4j-core|2.14.1|2.17.1|{status:colour=Green|title=PATCHED|subtle=true}|
+|CVE-2022-42003|{status:colour=Yellow|title=HIGH|subtle=true}|jackson-databind|2.13.2|2.13.4.1|{status:colour=Blue|title=IN_TRIAGE|subtle=true}|
+|CVE-2023-34062|{status:colour=Yellow|title=HIGH|subtle=true}|reactor-netty-http|1.0.38|1.0.39|{status:colour=Green|title=NOT_AFFECTED|subtle=true}|
+
+h3. SBOM Component Report
+A full inventory of every component, its version, package URL, and applicable licences — suitable for regulatory submissions and supply-chain audits.
+
+{note:title=Report Archiving}
+Both reports are archived as Jenkins build artefacts and can be downloaded from the build history at any time.
+{note}
+
+
+----
+
+
+h2. CI/CD Pipeline Integration
+SBOM generation and upload happens automatically on every Jenkins build. The pipeline shared library (`vars/`) provides reusable Groovy steps that can be dropped into any Jenkinsfile.
+
+h3. Shared Library Steps
+||Library Step||File||Purpose||
+|`uploadSBOM`|`vars/uploadSBOM.groovy`|PUT project, resolve UUID, POST BOM to `/api/v1/bom`|
+|`cdxgenRepo`|`vars/cdxgenRepo.groovy`|Run cdxgen in Docker; supports Java-specific image variant|
+|`createDTCollectionProject`|`vars/createDTCollectionProject.groovy`|Create or update a collection (parent) project with child aggregation|
+|`exportDTReport`|`vars/exportDTReport.groovy`|Download findings report for a single project via REST API|
+|`exportAllDTReports`|`vars/exportAllDTReports.groovy`|Iterate all DT projects and export findings in bulk|
+|`fetchAllDTProjects`|`vars/fetchAllDTProjects.groovy`|Return all project UUIDs from the DT portfolio|
+|`grypeScan`|`vars/grypeScan.groovy`|Run Grype OCI image scan and upload results to DT|
+|`syftImage`|`vars/syftImage.groovy`|Generate SBOM from a Docker image layer using Syft|
+|`listJenkinsPlugins`|`vars/listJenkinsPlugins.groovy`|Export Jenkins plugin list as a CycloneDX SBOM|
+|`uploadPluginSBOMs`|`vars/uploadPluginSBOMs.groovy`|Batch-upload plugin SBOMs to Dependency-Track|
+
+h3. Example Jenkinsfile
+{code:groovy:title=Jenkinsfile.java — Maven + Dependency-Track upload}
+// Jenkinsfile.java — upload SBOM after Maven build
+pipeline {
+    stages {
+        stage('Build & SBOM') {
+            steps {
+                sh 'mvn package -DskipTests'
+                uploadSBOM(
+                    projectName: env.JOB_BASE_NAME,
+                    projectVersion: env.BUILD_NUMBER,
+                    bomPath: 'target/bom.json',
+                    dtUrl: 'https://dependencytrack.example.com',
+                    dtApiKey: credentials('DT_API_KEY')
+                )
+            }
+        }
+    }
+}
+{code}
+
+{info:title=Auto-Create Projects}
+The `uploadSBOM` step automatically creates the project in Dependency-Track if it does not already exist, using a PUT/PATCH sequence followed by a POST to `/api/v1/bom`.
+{info}
+
+
+----
+
+
+h2. API Explorer — Swagger UI
+Dependency-Track ships with a built-in *Swagger / OpenAPI UI* that gives you an interactive, browser-based explorer for every endpoint the platform exposes. It is the fastest way to understand what is possible and to prototype integrations before writing code.
+
+{info:title=Accessing the Swagger UI}
+Open {{http://<your-dt-host>/api/swagger-ui/}} in a browser. Click *Authorize* in the top-right, enter your API key (Administration → Access Management → API Keys), and every endpoint becomes executable directly from the browser.
+{info}
+
+h3. Endpoint Groups
+||Endpoint Group||Path Prefix||Key Operations||
+|*BOM / SBOM Upload*|`/api/v1/bom`|Upload a CycloneDX or SPDX BOM; poll processing status|
+|*Projects*|`/api/v1/project`|Create, update, delete, tag, and search projects; manage parent/child relationships|
+|*Findings / Vulnerabilities*|`/api/v1/finding`|List findings for a project; export as FPF or SARIF; severity summary counts|
+|*Analysis*|`/api/v1/analysis`|Read and write analysis state, justification, comments, suppression|
+|*Vulnerability*|`/api/v1/vulnerability`|Look up a specific CVE; list vulns per component; feed status|
+|*Component*|`/api/v1/component`|Search components; resolve package URLs; find all affected projects|
+|*Policies*|`/api/v1/policy`|Create licence and severity policies; list violations|
+|*Notifications*|`/api/v1/notification`|Configure Slack, e-mail, webhook, and MS Teams alerts|
+|*Metrics*|`/api/v1/metrics`|Portfolio and per-project risk scores; trend data over time|
+
+h3. Practical Uses of the Swagger UI
+* *Prototype automations* — try an endpoint interactively before writing a Jenkins step or script
+* *Debug uploads* — POST a BOM directly and inspect the raw JSON response
+* *Bulk triage* — use {{PUT /api/v1/analysis}} to set analysis state across many findings from a script
+* *Build dashboards* — {{GET /api/v1/metrics/portfolio}} returns live counts suitable for Grafana or a status page
+* *Impact analysis* — {{GET /api/v1/component/identity}} with a package URL instantly shows every affected project
+* *Policy automation* — create licence policies via {{POST /api/v1/policy}} and wire them to break-build notifications
+
+{tip:title=OpenAPI Spec in this Repository}
+The full OpenAPI specification ({{dependencytrack-openapi.yaml}}) is also available in this repository. Import it into Postman, Insomnia, or any REST client for a complete offline API reference with saved example requests.
+{tip}
+
+{note:title=Everything in the UI is in the API}
+All pipeline operations in this project — SBOM upload, project creation, findings export, analysis recording — use the same REST API the Swagger UI exposes. If something is in the UI it can also be automated.
+{note}
+
+h3. Integration Ecosystem
+The Dependency-Track REST API enables integration with ticketing systems (Jira), SIEMs (Splunk, Elasticsearch), and executive dashboards — giving full visibility from developer laptop to boardroom. Any tool that can make an HTTP request can integrate with Dependency-Track.
+
+||Integration||API Endpoint(s) Used||What It Enables||
+|*Jira / Ticketing*|`GET /api/v1/finding/{project}` + `POST /api/v1/analysis`|Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved|
+|*Splunk / Elasticsearch*|`GET /api/v1/finding/{project}` + notification webhooks|Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting|
+|*Grafana Dashboards*|`GET /api/v1/metrics/portfolio` + `GET /api/v1/metrics/project/{uuid}`|Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility|
+|*MS Teams / Slack*|`POST /api/v1/notification/publisher`|Configure webhook notifications for new Critical or High findings so the right team is alerted immediately|
+|*PagerDuty / OpsGenie*|Outbound webhook from notification rules|Trigger on-call alerts when newly introduced Critical vulnerabilities are detected in production-bound builds|
+|*Custom / Executive Dashboards*|`GET /api/v1/metrics/portfolio` + `GET /api/v1/project`|Schedule daily metrics exports; feed bespoke reporting tools or management dashboards with live risk data|
+
+{info:title=Built-in Notification Channels}
+Dependency-Track also supports outbound notifications via *Slack, MS Teams, e-mail, and generic webhooks* — all configurable from Administration → Notifications. Each notification can be scoped to specific projects, portfolios, or severity levels so the right team gets exactly the signal they need.
+{info}
+
+
+----
+
+
+h2. Benefits Summary
+Adopting the SBOM pipeline and Dependency-Track gives engineering, security, and compliance teams a single, continuous view of software risk — with no manual overhead.
+
+||Area||Benefit||What it means in practice||
+|(/) *Visibility*|*Complete Inventory*|Every direct and transitive dependency is known. No blind spots in the supply chain.|
+|(!) *Security*|*Continuous Monitoring*|New CVEs are matched automatically — no manual scans. Alerts arrive the moment a feed refreshes.|
+|(/) *Process*|*Structured Triage*|Analysis states, comments, and suppression give every security decision a governed, auditable home.|
+|(/) *Efficiency*|*Automated Reporting*|PDF vulnerability and SBOM reports generated on every build. No manual export effort.|
+|(!) *Engineering*|*Shift-Left Security*|SBOMs upload at build time — vulnerabilities surface during development, not after release.|
+|(x) *Compliance*|*Policy Enforcement*|Severity and licence rules break the build before bad dependencies reach a release artefact.|
+|(/) *Coverage*|*Polyglot Support*|Maven, Node.js, Python, Go, Docker images — one Jenkins shared-library step covers all ecosystems.|
+|(/) *Integration*|*REST API*|Full headless API enables Jira, Grafana, Splunk, and custom tooling integrations.|
+|(/) *Audit*|*Immutable Audit Trail*|Every state change, comment, and suppression is timestamped and attributed. Compliance evidence as a byproduct.|
+
+{tip:title=Integration Ecosystem}
+The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, and executive dashboards — full visibility from developer laptop to boardroom.
+{tip}
+
+----
+
+_Generated on 23 April 2026 at 08:47 by the SBOM pipeline documentation generator._
