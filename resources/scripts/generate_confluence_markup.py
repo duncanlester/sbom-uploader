@@ -18,6 +18,7 @@ Usage (via the generate_docs.sh container script – recommended):
 
 from datetime import datetime
 import os
+import re
 
 # ── Real DT screenshot URLs (GitHub raw) ──────────────────────────────────
 DT_RAW = (
@@ -549,6 +550,17 @@ def build_wiki_page():
     ]
 
     content = "\n".join(parts)
+
+    # Convert Markdown-style backtick inline code to Confluence wiki monospace {{...}}
+    # Split on {code}...{code} blocks so we don't touch literal code block content
+    code_fence = re.compile(r'(\{code[^}]*\}.*?\{code\})', re.DOTALL)
+    segments = code_fence.split(content)
+    processed = []
+    for i, seg in enumerate(segments):
+        if i % 2 == 0:  # outside a code block — convert backticks
+            seg = re.sub(r'`([^`\n]+)`', r'{{\1}}', seg)
+        processed.append(seg)
+    content = "".join(processed)
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)

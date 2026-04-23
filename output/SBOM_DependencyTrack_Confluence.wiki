@@ -30,7 +30,7 @@ The [CycloneDX|https://cyclonedx.org] format is used throughout this pipeline (J
 
 h2. SBOM Generation
 h3. Maven Projects
-The [CycloneDX Maven Plugin|https://github.com/CycloneDX/cyclonedx-maven-plugin] is added to the project POM. It runs automatically during the *package* phase and outputs a CycloneDX JSON SBOM at `target/bom.json`.
+The [CycloneDX Maven Plugin|https://github.com/CycloneDX/cyclonedx-maven-plugin] is added to the project POM. It runs automatically during the *package* phase and outputs a CycloneDX JSON SBOM at {{target/bom.json}}.
 
 {code:language=xml|title=pom.xml — CycloneDX Maven Plugin}
 <plugin>
@@ -74,23 +74,23 @@ cdxgenRepo(
 {code}
 
 {tip:title=Multi-Language Support}
-cdxgen supports over 20 package ecosystems including npm, pip, Gradle, Go modules, Cargo, and more. The Jenkins shared library (`vars/cdxgenRepo.groovy`) abstracts the Docker invocation.
+cdxgen supports over 20 package ecosystems including npm, pip, Gradle, Go modules, Cargo, and more. The Jenkins shared library ({{vars/cdxgenRepo.groovy}}) abstracts the Docker invocation.
 {tip}
 
 h3. Docker / Container Images (Syft + Grype)
 *Syft* (Anchore) scans Docker image layers to generate a container SBOM, capturing every OS package and language library baked into the image. *Grype* (also Anchore) consumes the Syft SBOM for immediate vulnerability triage.
 
-* Scans a pulled or locally built Docker image via the `syftImage()` shared-library step
+* Scans a pulled or locally built Docker image via the {{syftImage()}} shared-library step
 * Identifies OS packages (Alpine/Debian/RHEL) *and* language libraries inside the image
-* Outputs CycloneDX JSON — uploads to Dependency-Track via `uploadSBOM()`
-* Run `grypeScan()` immediately after to get a pre-upload vulnerability report
+* Outputs CycloneDX JSON — uploads to Dependency-Track via {{uploadSBOM()}}
+* Run {{grypeScan()}} immediately after to get a pre-upload vulnerability report
 
 h3. SBOM Generation Tools — Summary
 ||Tool||Type||Use Case||Jenkins Step||
-|*cdxgen*|SBOM Generator|Polyglot — Java, Node.js, Python, Go, .NET, Ruby, Cargo & more|`cdxgenRepo()`|
-|*CycloneDX Maven Plugin*|SBOM Generator|Java/Maven — exact resolved-dependency-tree SBOM at build time|Auto via `mvn package`|
-|*Syft (Anchore)*|SBOM Generator|Docker/container images — scans image layers|`syftImage()`|
-|*Grype (Anchore)*|Vuln Scanner|Consumes a Syft/cdxgen SBOM; pre-upload vulnerability triage|`grypeScan()`|
+|*cdxgen*|SBOM Generator|Polyglot — Java, Node.js, Python, Go, .NET, Ruby, Cargo & more|{{cdxgenRepo()}}|
+|*CycloneDX Maven Plugin*|SBOM Generator|Java/Maven — exact resolved-dependency-tree SBOM at build time|Auto via {{mvn package}}|
+|*Syft (Anchore)*|SBOM Generator|Docker/container images — scans image layers|{{syftImage()}}|
+|*Grype (Anchore)*|Vuln Scanner|Consumes a Syft/cdxgen SBOM; pre-upload vulnerability triage|{{grypeScan()}}|
 |*CycloneDX Gradle/Node/.NET*|SBOM Generator|Ecosystem-specific build plugins for Gradle, npm, and .NET SDK|Language-native|
 
 
@@ -129,7 +129,7 @@ Dependency-Track queries the following feeds automatically. New vulnerabilities 
 |*VulnDB*|Risk Based Security|All ecosystems|Optional commercial feed — broader coverage and earlier disclosure than NVD.|
 
 {info:title=Automatic Feed Refresh}
-All feeds are queried automatically by Dependency-Track on a rolling schedule. You can also trigger an immediate re-analysis via the UI or REST API (`PUT /api/v1/project/{uuid}/metrics/current`) after a feed update.
+All feeds are queried automatically by Dependency-Track on a rolling schedule. You can also trigger an immediate re-analysis via the UI or REST API ({{PUT /api/v1/project/{uuid}/metrics/current}}) after a feed update.
 {info}
 
 
@@ -215,20 +215,20 @@ Both reports are archived as Jenkins build artefacts and can be downloaded from 
 
 
 h2. CI/CD Pipeline Integration
-SBOM generation and upload happens automatically on every Jenkins build. The pipeline shared library (`vars/`) provides reusable Groovy steps that can be dropped into any Jenkinsfile.
+SBOM generation and upload happens automatically on every Jenkins build. The pipeline shared library ({{vars/}}) provides reusable Groovy steps that can be dropped into any Jenkinsfile.
 
 h3. Shared Library Steps
 ||Library Step||File||Purpose||
-|`uploadSBOM`|`vars/uploadSBOM.groovy`|PUT project, resolve UUID, POST BOM to `/api/v1/bom`|
-|`cdxgenRepo`|`vars/cdxgenRepo.groovy`|Run cdxgen in Docker; supports Java-specific image variant|
-|`createDTCollectionProject`|`vars/createDTCollectionProject.groovy`|Create or update a collection (parent) project with child aggregation|
-|`exportDTReport`|`vars/exportDTReport.groovy`|Download findings report for a single project via REST API|
-|`exportAllDTReports`|`vars/exportAllDTReports.groovy`|Iterate all DT projects and export findings in bulk|
-|`fetchAllDTProjects`|`vars/fetchAllDTProjects.groovy`|Return all project UUIDs from the DT portfolio|
-|`grypeScan`|`vars/grypeScan.groovy`|Run Grype OCI image scan and upload results to DT|
-|`syftImage`|`vars/syftImage.groovy`|Generate SBOM from a Docker image layer using Syft|
-|`listJenkinsPlugins`|`vars/listJenkinsPlugins.groovy`|Export Jenkins plugin list as a CycloneDX SBOM|
-|`uploadPluginSBOMs`|`vars/uploadPluginSBOMs.groovy`|Batch-upload plugin SBOMs to Dependency-Track|
+|{{uploadSBOM}}|{{vars/uploadSBOM.groovy}}|PUT project, resolve UUID, POST BOM to {{/api/v1/bom}}|
+|{{cdxgenRepo}}|{{vars/cdxgenRepo.groovy}}|Run cdxgen in Docker; supports Java-specific image variant|
+|{{createDTCollectionProject}}|{{vars/createDTCollectionProject.groovy}}|Create or update a collection (parent) project with child aggregation|
+|{{exportDTReport}}|{{vars/exportDTReport.groovy}}|Download findings report for a single project via REST API|
+|{{exportAllDTReports}}|{{vars/exportAllDTReports.groovy}}|Iterate all DT projects and export findings in bulk|
+|{{fetchAllDTProjects}}|{{vars/fetchAllDTProjects.groovy}}|Return all project UUIDs from the DT portfolio|
+|{{grypeScan}}|{{vars/grypeScan.groovy}}|Run Grype OCI image scan and upload results to DT|
+|{{syftImage}}|{{vars/syftImage.groovy}}|Generate SBOM from a Docker image layer using Syft|
+|{{listJenkinsPlugins}}|{{vars/listJenkinsPlugins.groovy}}|Export Jenkins plugin list as a CycloneDX SBOM|
+|{{uploadPluginSBOMs}}|{{vars/uploadPluginSBOMs.groovy}}|Batch-upload plugin SBOMs to Dependency-Track|
 
 h3. Example Jenkinsfile
 {code:language=groovy|title=Jenkinsfile.java — Maven + Dependency-Track upload}
@@ -252,7 +252,7 @@ pipeline {
 {code}
 
 {info:title=Auto-Create Projects}
-The `uploadSBOM` step automatically creates the project in Dependency-Track if it does not already exist, using a PUT/PATCH sequence followed by a POST to `/api/v1/bom`.
+The {{uploadSBOM}} step automatically creates the project in Dependency-Track if it does not already exist, using a PUT/PATCH sequence followed by a POST to {{/api/v1/bom}}.
 {info}
 
 
@@ -268,15 +268,15 @@ Open {{http://<your-dt-host>/api/swagger-ui/}} in a browser. Click *Authorize* i
 
 h3. Endpoint Groups
 ||Endpoint Group||Path Prefix||Key Operations||
-|*BOM / SBOM Upload*|`/api/v1/bom`|Upload a CycloneDX or SPDX BOM; poll processing status|
-|*Projects*|`/api/v1/project`|Create, update, delete, tag, and search projects; manage parent/child relationships|
-|*Findings / Vulnerabilities*|`/api/v1/finding`|List findings for a project; export as FPF or SARIF; severity summary counts|
-|*Analysis*|`/api/v1/analysis`|Read and write analysis state, justification, comments, suppression|
-|*Vulnerability*|`/api/v1/vulnerability`|Look up a specific CVE; list vulns per component; feed status|
-|*Component*|`/api/v1/component`|Search components; resolve package URLs; find all affected projects|
-|*Policies*|`/api/v1/policy`|Create licence and severity policies; list violations|
-|*Notifications*|`/api/v1/notification`|Configure Slack, e-mail, webhook, and MS Teams alerts|
-|*Metrics*|`/api/v1/metrics`|Portfolio and per-project risk scores; trend data over time|
+|*BOM / SBOM Upload*|{{/api/v1/bom}}|Upload a CycloneDX or SPDX BOM; poll processing status|
+|*Projects*|{{/api/v1/project}}|Create, update, delete, tag, and search projects; manage parent/child relationships|
+|*Findings / Vulnerabilities*|{{/api/v1/finding}}|List findings for a project; export as FPF or SARIF; severity summary counts|
+|*Analysis*|{{/api/v1/analysis}}|Read and write analysis state, justification, comments, suppression|
+|*Vulnerability*|{{/api/v1/vulnerability}}|Look up a specific CVE; list vulns per component; feed status|
+|*Component*|{{/api/v1/component}}|Search components; resolve package URLs; find all affected projects|
+|*Policies*|{{/api/v1/policy}}|Create licence and severity policies; list violations|
+|*Notifications*|{{/api/v1/notification}}|Configure Slack, e-mail, webhook, and MS Teams alerts|
+|*Metrics*|{{/api/v1/metrics}}|Portfolio and per-project risk scores; trend data over time|
 
 h3. Practical Uses of the Swagger UI
 * *Prototype automations* — try an endpoint interactively before writing a Jenkins step or script
@@ -298,12 +298,12 @@ h3. Integration Ecosystem
 The Dependency-Track REST API enables integration with ticketing systems (Jira), SIEMs (Splunk, Elasticsearch), and executive dashboards — giving full visibility from developer laptop to boardroom. Any tool that can make an HTTP request can integrate with Dependency-Track.
 
 ||Integration||API Endpoint(s) Used||What It Enables||
-|*Jira / Ticketing*|`GET /api/v1/finding/{project}` + `POST /api/v1/analysis`|Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved|
-|*Splunk / Elasticsearch*|`GET /api/v1/finding/{project}` + notification webhooks|Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting|
-|*Grafana Dashboards*|`GET /api/v1/metrics/portfolio` + `GET /api/v1/metrics/project/{uuid}`|Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility|
-|*MS Teams / Slack*|`POST /api/v1/notification/publisher`|Configure webhook notifications for new Critical or High findings so the right team is alerted immediately|
+|*Jira / Ticketing*|{{GET /api/v1/finding/{project}}} + {{POST /api/v1/analysis}}|Auto-create Jira issues for Critical/High findings; sync analysis state back when tickets are resolved|
+|*Splunk / Elasticsearch*|{{GET /api/v1/finding/{project}}} + notification webhooks|Stream vulnerability events and analysis decisions into your SIEM for correlation, alerting, and compliance reporting|
+|*Grafana Dashboards*|{{GET /api/v1/metrics/portfolio}} + {{GET /api/v1/metrics/project/{uuid}}}|Pull live risk scores and trend data into Grafana panels for real-time executive-level visibility|
+|*MS Teams / Slack*|{{POST /api/v1/notification/publisher}}|Configure webhook notifications for new Critical or High findings so the right team is alerted immediately|
 |*PagerDuty / OpsGenie*|Outbound webhook from notification rules|Trigger on-call alerts when newly introduced Critical vulnerabilities are detected in production-bound builds|
-|*Custom / Executive Dashboards*|`GET /api/v1/metrics/portfolio` + `GET /api/v1/project`|Schedule daily metrics exports; feed bespoke reporting tools or management dashboards with live risk data|
+|*Custom / Executive Dashboards*|{{GET /api/v1/metrics/portfolio}} + {{GET /api/v1/project}}|Schedule daily metrics exports; feed bespoke reporting tools or management dashboards with live risk data|
 
 {info:title=Built-in Notification Channels}
 Dependency-Track also supports outbound notifications via *Slack, MS Teams, e-mail, and generic webhooks* — all configurable from Administration → Notifications. Each notification can be scoped to specific projects, portfolios, or severity levels so the right team gets exactly the signal they need.
@@ -333,4 +333,4 @@ The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, an
 
 ----
 
-_Generated on 23 April 2026 at 11:22 by the SBOM pipeline documentation generator._
+_Generated on 23 April 2026 at 11:36 by the SBOM pipeline documentation generator._
