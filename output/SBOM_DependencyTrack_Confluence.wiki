@@ -333,4 +333,4 @@ The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, an
 
 ----
 
-_Generated on 23 April 2026 at 12:34 by the SBOM pipeline documentation generator._
+_Generated on 23 April 2026 at 22:02 by the SBOM pipeline documentation generator._

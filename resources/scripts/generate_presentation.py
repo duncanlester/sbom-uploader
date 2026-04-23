@@ -11,6 +11,7 @@ from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
+from PIL import Image as _PILImage
 import os
 
 # ── Screenshot helper ──────────────────────────────────────────────────────
@@ -1184,14 +1185,31 @@ def slide_dt_audit_screenshot(prs):
 
 
 def _add_screenshot_card(slide, img_path, left, top, width, height, caption=""):
-    """Embed a screenshot image with a thin navy caption bar underneath."""
+    """Embed a screenshot image preserving aspect ratio, centred in the card area,
+    with a thin navy caption bar underneath."""
     cap_h = Inches(0.33)
-    img_h = height - cap_h
-    slide.shapes.add_picture(img_path, left, top, width, img_h)
-    add_rect(slide, left, top + img_h, width, cap_h, NAVY)
+    img_area_w = width
+    img_area_h = height - cap_h
+
+    # Determine natural image dimensions and fit inside card area
+    with _PILImage.open(img_path) as im:
+        nat_w, nat_h = im.size
+    scale = min(img_area_w / nat_w, img_area_h / nat_h)
+    fit_w = int(nat_w * scale)
+    fit_h = int(nat_h * scale)
+
+    # Centre the fitted image within the card area
+    img_left = left + (img_area_w - fit_w) // 2
+    img_top  = top  + (img_area_h - fit_h) // 2
+
+    # Fill background of card area so letterbox bars look intentional
+    add_rect(slide, left, top, width, img_area_h, RGBColor(0x0a, 0x0a, 0x0a))
+    slide.shapes.add_picture(img_path, img_left, img_top, fit_w, fit_h)
+
+    add_rect(slide, left, top + img_area_h, width, cap_h, NAVY)
     if caption:
         add_text_box(slide, caption,
-                     left + Inches(0.08), top + img_h + Inches(0.03),
+                     left + Inches(0.08), top + img_area_h + Inches(0.03),
                      width - Inches(0.16), cap_h - Inches(0.06),
                      font_size=11, bold=True, color=WHITE)
 
