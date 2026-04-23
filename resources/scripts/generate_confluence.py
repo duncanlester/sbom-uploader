@@ -38,84 +38,120 @@ def embed_screenshot(filename: str, alt: str = "", width: int = 750) -> str:
     )
 
 
-# ── Confluence Storage Format helpers ──────────────────────────────────────
+# ── HTML helper functions (browser-renderable) ─────────────────────────────
+
+_PANEL_ICONS = {
+    "info":    ("ℹ️",  "#1e40af", "#dbeafe", "#bfdbfe"),
+    "note":    ("📝",  "#92400e", "#fef3c7", "#fde68a"),
+    "warning": ("⚠️",  "#991b1b", "#fee2e2", "#fecaca"),
+    "tip":     ("💡",  "#14532d", "#dcfce7", "#bbf7d0"),
+}
+
+
+def _panel(kind: str, body: str, title: str = "") -> str:
+    icon, text_col, bg, border = _PANEL_ICONS[kind]
+    heading = (
+        f'<div style="font-weight:700;color:{text_col};margin-bottom:.35rem;'
+        f'font-size:.9rem;text-transform:uppercase;letter-spacing:.04em;">'
+        f'{icon}&nbsp;&nbsp;{title}</div>'
+    ) if title else ""
+    return (
+        f'<div style="background:{bg};border-left:4px solid {border};'
+        f'border-radius:0 6px 6px 0;padding:.75rem 1rem;margin:.9rem 0;'
+        f'color:{text_col};">'
+        f"{heading}"
+        f'<div style="font-size:.92rem;line-height:1.6;">{body}</div>'
+        f'</div>'
+    )
 
 
 def info_panel(body: str, title: str = "") -> str:
-    t = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
-    return (
-        f'<ac:structured-macro ac:name="info">{t}'
-        f"<ac:rich-text-body><p>{body}</p></ac:rich-text-body>"
-        f"</ac:structured-macro>"
-    )
+    return _panel("info", body, title)
 
 
 def note_panel(body: str, title: str = "") -> str:
-    t = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
-    return (
-        f'<ac:structured-macro ac:name="note">{t}'
-        f"<ac:rich-text-body><p>{body}</p></ac:rich-text-body>"
-        f"</ac:structured-macro>"
-    )
+    return _panel("note", body, title)
 
 
 def warning_panel(body: str, title: str = "") -> str:
-    t = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
-    return (
-        f'<ac:structured-macro ac:name="warning">{t}'
-        f"<ac:rich-text-body><p>{body}</p></ac:rich-text-body>"
-        f"</ac:structured-macro>"
-    )
+    return _panel("warning", body, title)
 
 
 def tip_panel(body: str, title: str = "") -> str:
-    t = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
-    return (
-        f'<ac:structured-macro ac:name="tip">{t}'
-        f"<ac:rich-text-body><p>{body}</p></ac:rich-text-body>"
-        f"</ac:structured-macro>"
-    )
+    return _panel("tip", body, title)
 
 
 def code_block(code: str, language: str = "xml", title: str = "") -> str:
-    t = f'<ac:parameter ac:name="title">{title}</ac:parameter>' if title else ""
+    import html as _html
+    escaped = _html.escape(code)
+    header = (
+        f'<div style="background:#0f172a;color:#94a3b8;padding:.35rem .85rem;'
+        f'font-size:.78rem;font-family:monospace;border-radius:6px 6px 0 0;'
+        f'display:flex;justify-content:space-between;align-items:center;">'
+        f'<span style="color:#67e8f9;">{title}</span>'
+        f'<span style="opacity:.6;">{language}</span>'
+        f'</div>'
+    ) if title else (
+        f'<div style="background:#0f172a;color:#94a3b8;padding:.25rem .85rem;'
+        f'font-size:.78rem;font-family:monospace;border-radius:6px 6px 0 0;'
+        f'text-align:right;opacity:.7;">{language}</div>'
+    )
     return (
-        f'<ac:structured-macro ac:name="code">'
-        f'<ac:parameter ac:name="language">{language}</ac:parameter>'
-        f'<ac:parameter ac:name="linenumbers">true</ac:parameter>'
-        f"{t}"
-        f"<ac:plain-text-body><![CDATA[{code}]]></ac:plain-text-body>"
-        f"</ac:structured-macro>"
+        f'<div style="margin:.9rem 0;border-radius:6px;overflow:hidden;'
+        f'box-shadow:0 2px 8px rgba(0,0,0,.15);">'
+        f"{header}"
+        f'<pre style="margin:0;background:#1e293b;color:#e2e8f0;padding:1rem;'
+        f'overflow-x:auto;font-size:.85rem;line-height:1.6;border-radius:0 0 6px 6px;">'
+        f"<code>{escaped}</code></pre>"
+        f"</div>"
     )
 
 
 def expand_macro(title: str, body: str) -> str:
     return (
-        f'<ac:structured-macro ac:name="expand">'
-        f'<ac:parameter ac:name="title">{title}</ac:parameter>'
-        f"<ac:rich-text-body>{body}</ac:rich-text-body>"
-        f"</ac:structured-macro>"
+        f'<details style="margin:.75rem 0;border:1px solid #e2e8f0;'
+        f'border-radius:6px;padding:.5rem .75rem;">'
+        f'<summary style="cursor:pointer;font-weight:600;color:#1e3a8a;">{title}</summary>'
+        f'<div style="margin-top:.5rem;">{body}</div>'
+        f'</details>'
     )
 
 
 def table_of_contents() -> str:
+    # Rendered as a styled placeholder; a real TOC would require a JS scroll-spy
     return (
-        '<ac:structured-macro ac:name="toc">'
-        '<ac:parameter ac:name="printable">true</ac:parameter>'
-        '<ac:parameter ac:name="style">disc</ac:parameter>'
-        '<ac:parameter ac:name="maxLevel">3</ac:parameter>'
-        "</ac:structured-macro>"
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;'
+        'padding:.75rem 1.25rem;margin:1rem 0;display:inline-block;min-width:280px;">'
+        '<p style="margin:0 0 .4rem;font-weight:700;color:#1e3a8a;font-size:.9rem;">'
+        '📋&nbsp;&nbsp;Contents</p>'
+        '<ol style="margin:0;padding-left:1.25rem;font-size:.88rem;color:#334155;">'
+        '<li>What is an SBOM?</li>'
+        '<li>How SBOMs Are Generated</li>'
+        '<li>Dependency-Track Overview</li>'
+        '<li>Managing Vulnerabilities</li>'
+        '<li>Analysis &amp; Actions</li>'
+        '<li>Reporting</li>'
+        '<li>Pipeline Overview</li>'
+        '<li>API Explorer &amp; Integration Ecosystem</li>'
+        '<li>Benefits Summary</li>'
+        '</ol>'
+        '</div>'
     )
 
 
 def status_macro(text: str, colour: str, subtle: bool = False) -> str:
-    s = "true" if subtle else "false"
+    _colour_map = {
+        "Green":  ("#14532d", "#dcfce7"),
+        "Blue":   ("#1e3a8a", "#dbeafe"),
+        "Red":    ("#991b1b", "#fee2e2"),
+        "Yellow": ("#78350f", "#fef3c7"),
+        "Grey":   ("#374151", "#f3f4f6"),
+    }
+    text_col, bg = _colour_map.get(colour, ("#374151", "#f3f4f6"))
+    opacity = "opacity:.75;" if subtle else ""
     return (
-        f'<ac:structured-macro ac:name="status">'
-        f'<ac:parameter ac:name="colour">{colour}</ac:parameter>'
-        f'<ac:parameter ac:name="title">{text}</ac:parameter>'
-        f'<ac:parameter ac:name="subtle">{s}</ac:parameter>'
-        f"</ac:structured-macro>"
+        f'<span style="background:{bg};color:{text_col};padding:2px 8px;'
+        f'border-radius:4px;font-weight:600;font-size:.82em;{opacity}">{text}</span>'
     )
 
 
@@ -1077,27 +1113,28 @@ def build_confluence_page(out_path: str = "SBOM_DependencyTrack_Confluence.html"
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SBOM &amp; Vulnerability Management with Dependency-Track</title>
   <style>
-    body  {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-             max-width: 1100px; margin: 0 auto; padding: 2rem; color: #0f172a; }}
-    h1   {{ color: #1e3a8a; border-bottom: 3px solid #1e3a8a; padding-bottom: .4rem; }}
-    h2   {{ color: #1e3a8a; margin-top: 2rem; }}
-    h3   {{ color: #06747c; }}
-    code {{ background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: .92em; }}
-    pre  {{ background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px;
-            overflow-x: auto; }}
-    table{{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
-    th, td {{ border: 1px solid #e2e8f0; vertical-align: top; }}
+    body  {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+             max-width: 1100px; margin: 0 auto; padding: 2rem 2.5rem; color: #0f172a;
+             line-height: 1.6; }}
+    h1   {{ color: #1e3a8a; border-bottom: 3px solid #1e3a8a; padding-bottom: .5rem;
+             margin-bottom: 1.5rem; font-size: 1.9rem; }}
+    h2   {{ color: #1e3a8a; margin-top: 2.5rem; font-size: 1.35rem;
+             border-bottom: 1px solid #e2e8f0; padding-bottom: .3rem; }}
+    h3   {{ color: #06747c; margin-top: 1.5rem; font-size: 1.05rem; }}
+    p    {{ margin: .6rem 0; }}
+    code {{ background: #f1f5f9; padding: 1px 5px; border-radius: 3px;
+             font-size: .88em; font-family: "Fira Code", "Cascadia Code", monospace; }}
+    pre  {{ background: #1e293b; color: #e2e8f0; padding: 1rem 1.25rem;
+             border-radius: 6px; overflow-x: auto; font-size: .85rem; line-height: 1.6; }}
+    pre code {{ background: none; padding: 0; font-size: inherit; border-radius: 0; }}
+    table{{ border-collapse: collapse; width: 100%; margin: 1rem 0;
+             font-size: .91rem; }}
+    th, td {{ border: 1px solid #e2e8f0; vertical-align: top; padding: 6px 10px; }}
+    thead th {{ background: #1e3a8a; color: #fff; }}
+    tr:nth-child(even) td {{ background: #f8fafc; }}
     ul, ol {{ margin: .5rem 0 .5rem 1.5rem; }}
-    li   {{ margin: .25rem 0; }}
-    /* Confluence macro approximations */
-    ac\\:structured-macro[ac\\:name="info"]    {{ display:block; background:#e8f4fd;
-        border-left:4px solid #1976d2; padding:.75rem 1rem; margin:.75rem 0; border-radius:4px; }}
-    ac\\:structured-macro[ac\\:name="note"]    {{ display:block; background:#fff8e1;
-        border-left:4px solid #f9a825; padding:.75rem 1rem; margin:.75rem 0; border-radius:4px; }}
-    ac\\:structured-macro[ac\\:name="warning"] {{ display:block; background:#fce4ec;
-        border-left:4px solid #c62828; padding:.75rem 1rem; margin:.75rem 0; border-radius:4px; }}
-    ac\\:structured-macro[ac\\:name="tip"]     {{ display:block; background:#e8f5e9;
-        border-left:4px solid #2e7d32; padding:.75rem 1rem; margin:.75rem 0; border-radius:4px; }}
+    li   {{ margin: .3rem 0; }}
+    details summary {{ outline: none; }}
   </style>
 </head>
 <body>
