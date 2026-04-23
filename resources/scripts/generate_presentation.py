@@ -25,15 +25,18 @@ def _screenshot(name: str):
     return path if os.path.isfile(path) else None
 
 # ── Brand colours ──────────────────────────────────────────────────────────
-NAVY   = RGBColor(0x1e, 0x3a, 0x8a)   # deep navy
-TEAL   = RGBColor(0x06, 0x74, 0x7c)   # dependency-track-ish teal
-AMBER  = RGBColor(0xd9, 0x7a, 0x06)   # warning
-RED    = RGBColor(0xb9, 0x1c, 0x1c)   # critical
-GREEN  = RGBColor(0x15, 0x80, 0x3d)   # ok / low
-WHITE  = RGBColor(0xff, 0xff, 0xff)
-GREY   = RGBColor(0x64, 0x74, 0x8b)
-LGREY  = RGBColor(0xf1, 0xf5, 0xf9)
-BLACK  = RGBColor(0x0f, 0x17, 0x2a)
+NAVY      = RGBColor(0x1e, 0x3a, 0x8a)   # deep navy
+DARK_NAVY = RGBColor(0x0c, 0x1a, 0x44)   # deeper navy (backgrounds/base layers)
+TEAL      = RGBColor(0x06, 0x74, 0x7c)   # dependency-track teal
+DARK_TEAL = RGBColor(0x04, 0x51, 0x5a)   # darker teal (decorative)
+AMBER     = RGBColor(0xd9, 0x7a, 0x06)   # warning
+RED       = RGBColor(0xb9, 0x1c, 0x1c)   # critical
+GREEN     = RGBColor(0x15, 0x80, 0x3d)   # ok / low
+WHITE     = RGBColor(0xff, 0xff, 0xff)
+GREY      = RGBColor(0x64, 0x74, 0x8b)   # muted text
+LGREY     = RGBColor(0xf0, 0xf4, 0xf8)   # slide background
+MID_GREY  = RGBColor(0xde, 0xe3, 0xea)   # card borders / dividers
+BLACK     = RGBColor(0x0f, 0x17, 0x2a)
 
 SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
@@ -54,13 +57,15 @@ def add_rect(slide, left, top, width, height, fill, alpha=None):
 
 def add_text_box(slide, text, left, top, width, height,
                  font_size=18, bold=False, color=BLACK, align=PP_ALIGN.LEFT,
-                 italic=False, wrap=True):
+                 italic=False, wrap=True, line_spacing=None):
     txb = slide.shapes.add_textbox(left, top, width, height)
     txb.word_wrap = wrap
     tf = txb.text_frame
     tf.word_wrap = wrap
     p = tf.paragraphs[0]
     p.alignment = align
+    if line_spacing is not None:
+        p.line_spacing = line_spacing
     run = p.add_run()
     run.text = text
     run.font.size = Pt(font_size)
@@ -72,7 +77,9 @@ def add_text_box(slide, text, left, top, width, height,
 
 def add_bullet_box(slide, items, left, top, width, height,
                    font_size=16, color=BLACK, title=None, title_size=18,
-                   title_color=NAVY, bullet="▸ ", bold_first=False):
+                   title_color=NAVY, bullet="▸ ", bold_first=False,
+                   space_before=3, line_spacing=1.2):
+    """Bullet list with consistent paragraph spacing and line height."""
     txb = slide.shapes.add_textbox(left, top, width, height)
     txb.word_wrap = True
     tf = txb.text_frame
@@ -80,6 +87,7 @@ def add_bullet_box(slide, items, left, top, width, height,
     first = True
     if title:
         p = tf.paragraphs[0]
+        p.space_after = Pt(6)
         run = p.add_run()
         run.text = title
         run.font.size = Pt(title_size)
@@ -91,6 +99,8 @@ def add_bullet_box(slide, items, left, top, width, height,
             p = tf.paragraphs[0]
         else:
             p = tf.add_paragraph()
+        p.space_before = Pt(space_before)
+        p.line_spacing = line_spacing
         run = p.add_run()
         run.text = f"{bullet}{item}"
         run.font.size = Pt(font_size)
@@ -101,17 +111,23 @@ def add_bullet_box(slide, items, left, top, width, height,
 
 
 def nav_bar(slide, title, color=NAVY):
-    """Top navy bar with slide title."""
-    bar = add_rect(slide, 0, 0, SLIDE_W, Inches(0.85), color)
+    """Top nav bar with teal left and bottom accent strips (0.85″ total height)."""
+    BAR_H = Inches(0.85)
+    add_rect(slide, 0, 0, SLIDE_W, BAR_H, color)
+    # Left teal accent strip
+    add_rect(slide, 0, 0, Inches(0.055), BAR_H, TEAL)
+    # Bottom teal accent strip (inside the bar, flush to base)
+    add_rect(slide, 0, BAR_H - Inches(0.05), SLIDE_W, Inches(0.05), TEAL)
     add_text_box(slide, title,
-                 Inches(0.35), Inches(0.12), Inches(12.5), Inches(0.65),
+                 Inches(0.44), Inches(0.1), Inches(12.4), Inches(0.68),
                  font_size=26, bold=True, color=WHITE)
 
 
-def footer_bar(slide, text="SBOM & Vulnerability Management | Dependency-Track"):
-    bar = add_rect(slide, 0, SLIDE_H - Inches(0.38), SLIDE_W, Inches(0.38), NAVY)
+def footer_bar(slide, text="SBOM & Vulnerability Management  ·  Dependency-Track"):
+    add_rect(slide, 0, SLIDE_H - Inches(0.4), SLIDE_W, Inches(0.02), TEAL)   # thin separator
+    add_rect(slide, 0, SLIDE_H - Inches(0.38), SLIDE_W, Inches(0.38), NAVY)
     add_text_box(slide, text,
-                 Inches(0.35), SLIDE_H - Inches(0.36), Inches(12.5), Inches(0.36),
+                 Inches(0.35), SLIDE_H - Inches(0.36), Inches(12.5), Inches(0.34),
                  font_size=10, color=RGBColor(0xcb, 0xd5, 0xe1), align=PP_ALIGN.CENTER)
 
 
@@ -125,32 +141,45 @@ def chip(slide, text, left, top, width, height, bg, fg=WHITE, font_size=13):
 
 def slide_title(prs):
     slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
-    # Full background gradient simulation — solid navy top block
-    add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, NAVY)
-    # Teal accent strip
-    add_rect(slide, 0, Inches(4.8), SLIDE_W, Inches(0.08), TEAL)
 
+    # ── Background: dark navy base + lighter navy panel ──────────────────
+    add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, DARK_NAVY)          # very dark base
+    add_rect(slide, 0, 0, SLIDE_W, Inches(5.08), NAVY)           # lighter navy top section
+
+    # ── Decorative geometry — top-right corner accent ────────────────────
+    add_rect(slide, Inches(9.8),  0, Inches(3.53), Inches(3.5), DARK_TEAL)   # teal block
+    add_rect(slide, Inches(11.2), 0, Inches(2.13), Inches(1.8), TEAL)        # brighter teal corner
+
+    # ── Teal divider bar between sections ────────────────────────────────
+    add_rect(slide, 0, Inches(5.08), SLIDE_W, Inches(0.1), TEAL)
+
+    # ── Main content ─────────────────────────────────────────────────────
     add_text_box(slide, "SBOM & Vulnerability Management",
-                 Inches(0.8), Inches(1.4), Inches(11.7), Inches(1.1),
-                 font_size=44, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-    add_text_box(slide, "Automating Software Composition Analysis with Dependency-Track",
-                 Inches(0.8), Inches(2.55), Inches(11.7), Inches(0.7),
-                 font_size=24, color=RGBColor(0xcb, 0xd5, 0xe1), align=PP_ALIGN.CENTER)
+                 Inches(0.75), Inches(1.15), Inches(9.5), Inches(1.2),
+                 font_size=46, bold=True, color=WHITE, align=PP_ALIGN.LEFT)
+    add_text_box(slide,
+                 "Automating Software Composition Analysis with Dependency-Track",
+                 Inches(0.75), Inches(2.52), Inches(9.5), Inches(0.72),
+                 font_size=22, color=RGBColor(0xc4, 0xce, 0xe0), align=PP_ALIGN.LEFT)
     add_text_box(slide, "Know every component. Manage every vulnerability.",
-                 Inches(0.8), Inches(3.35), Inches(11.7), Inches(0.55),
-                 font_size=18, italic=True, color=TEAL, align=PP_ALIGN.CENTER)
+                 Inches(0.75), Inches(3.38), Inches(9.5), Inches(0.55),
+                 font_size=17, italic=True, color=TEAL, align=PP_ALIGN.LEFT)
 
-    # Badge row
-    for i, (label, col) in enumerate([
-            ("Automated SBOM Generation", TEAL),
-            ("Continuous Monitoring",     RGBColor(0x1d, 0x4e, 0xd8)),
-            ("Vulnerability Reporting",   RGBColor(0x7c, 0x3a, 0xed)),
-            ("Maven Plugin Integration",  GREEN),
-    ]):
-        chip(slide, label,
-             Inches(0.55 + i * 3.1), Inches(5.25),
-             Inches(2.85), Inches(0.52),
-             col, font_size=13)
+    # ── Badge chips on dark bottom section ───────────────────────────────
+    badge_data = [
+        ("Automated SBOM Generation", TEAL),
+        ("Continuous Monitoring",     RGBColor(0x1d, 0x4e, 0xd8)),
+        ("Vulnerability Reporting",   RGBColor(0x7c, 0x3a, 0xed)),
+        ("Maven Plugin Integration",  GREEN),
+    ]
+    for i, (label, col) in enumerate(badge_data):
+        bx = Inches(0.55 + i * 3.1)
+        by = Inches(5.4)
+        bw = Inches(2.88)
+        bh = Inches(0.64)
+        add_rect(slide, bx, by, bw, bh, col)
+        add_text_box(slide, label, bx, by, bw, bh,
+                     font_size=13, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
     footer_bar(slide)
 
@@ -161,10 +190,11 @@ def slide_what_is_sbom(prs):
     nav_bar(slide, "What is an SBOM?")
     footer_bar(slide)
 
-    # Left column — definition
+    # Left column — definition (white card with teal left accent)
     add_rect(slide, Inches(0.3), Inches(1.05), Inches(5.8), Inches(5.8), WHITE)
+    add_rect(slide, Inches(0.3), Inches(1.05), Inches(0.055), Inches(5.8), TEAL)  # accent strip
     add_text_box(slide, "Software Bill of Materials",
-                 Inches(0.45), Inches(1.15), Inches(5.5), Inches(0.5),
+                 Inches(0.48), Inches(1.18), Inches(5.5), Inches(0.5),
                  font_size=20, bold=True, color=NAVY)
     add_text_box(
         slide,
@@ -173,8 +203,8 @@ def slide_what_is_sbom(prs):
         "versions, licences, and supply-chain relationships.\n\n"
         "It is the foundation for understanding what your software is made of "
         "and identifying where security risks exist.",
-        Inches(0.45), Inches(1.75), Inches(5.5), Inches(2.5),
-        font_size=15, color=GREY
+        Inches(0.48), Inches(1.78), Inches(5.48), Inches(2.45),
+        font_size=15, color=GREY, line_spacing=1.25
     )
     add_bullet_box(slide,
         ["Component name & version",
@@ -182,33 +212,33 @@ def slide_what_is_sbom(prs):
          "Dependency relationships",
          "Licence identifiers (SPDX)",
          "Known vulnerability references (CVEs)"],
-        Inches(0.45), Inches(4.35), Inches(5.5), Inches(2.4),
+        Inches(0.48), Inches(4.35), Inches(5.48), Inches(2.4),
         font_size=14, color=BLACK,
         title="An SBOM records:", title_size=15, title_color=TEAL
     )
 
-    # Right column — CycloneDX callout
-    add_rect(slide, Inches(6.4), Inches(1.05), Inches(6.6), Inches(2.5), NAVY)
+    # Right column — CycloneDX callout (taller header strip)
+    add_rect(slide, Inches(6.4), Inches(1.05), Inches(6.6), Inches(2.55), NAVY)
     add_text_box(slide, "CycloneDX Format",
-                 Inches(6.55), Inches(1.15), Inches(6.3), Inches(0.45),
-                 font_size=19, bold=True, color=WHITE)
+                 Inches(6.55), Inches(1.18), Inches(6.3), Inches(0.48),
+                 font_size=20, bold=True, color=WHITE)
     add_text_box(slide,
         "CycloneDX is an OWASP standard for SBOMs. It is natively supported "
         "by Dependency-Track, cdxgen, and the CycloneDX Maven / Gradle plugins.",
-        Inches(6.55), Inches(1.65), Inches(6.3), Inches(1.6),
-        font_size=14, color=RGBColor(0xcb, 0xd5, 0xe1)
+        Inches(6.55), Inches(1.75), Inches(6.3), Inches(1.6),
+        font_size=14, color=RGBColor(0xcb, 0xd5, 0xe1), line_spacing=1.25
     )
 
-    add_rect(slide, Inches(6.4), Inches(3.75), Inches(6.6), Inches(3.1), TEAL)
+    add_rect(slide, Inches(6.4), Inches(3.78), Inches(6.6), Inches(3.07), TEAL)
     add_text_box(slide, "Why do SBOMs matter?",
-                 Inches(6.55), Inches(3.85), Inches(6.3), Inches(0.45),
-                 font_size=19, bold=True, color=WHITE)
+                 Inches(6.55), Inches(3.91), Inches(6.3), Inches(0.48),
+                 font_size=20, bold=True, color=WHITE)
     add_bullet_box(slide,
         ["Visibility into ALL transitive dependencies",
          "Rapid impact assessment when a new CVE drops",
          "Licence compliance & open-source governance",
          "Supply-chain security & audit trail"],
-        Inches(6.55), Inches(4.4), Inches(6.3), Inches(2.0),
+        Inches(6.55), Inches(4.48), Inches(6.3), Inches(2.0),
         font_size=14, color=WHITE, bullet="✓  "
     )
 
@@ -223,11 +253,12 @@ def slide_how_sboms_generated(prs):
                  Inches(0.35), Inches(0.95), Inches(12.6), Inches(0.4),
                  font_size=15, italic=True, color=GREY)
 
-    # Card 1 — cdxgen (any language)
+    # Card 1 — cdxgen (any language) with left accent strip
     add_rect(slide, Inches(0.3), Inches(1.5), Inches(6.1), Inches(5.3), WHITE)
     add_rect(slide, Inches(0.3), Inches(1.5), Inches(6.1), Inches(0.55), NAVY)
+    add_rect(slide, Inches(0.3), Inches(2.05), Inches(0.05), Inches(4.75), NAVY)  # left accent
     add_text_box(slide, "cdxgen  —  Any Language / Repository",
-                 Inches(0.4), Inches(1.55), Inches(5.9), Inches(0.45),
+                 Inches(0.44), Inches(1.57), Inches(5.86), Inches(0.45),
                  font_size=16, bold=True, color=WHITE)
     add_bullet_box(slide,
         ["Polyglot support: Java, Node.js, Python, .NET, Go, Ruby …",
@@ -236,15 +267,16 @@ def slide_how_sboms_generated(prs):
          "Produces a CycloneDX JSON SBOM in one command",
          "No changes needed to the target repository",
          "Supports pinned versions for reproducible builds"],
-        Inches(0.45), Inches(2.2), Inches(5.8), Inches(4.3),
+        Inches(0.48), Inches(2.2), Inches(5.76), Inches(4.3),
         font_size=14, color=BLACK
     )
 
-    # Card 2 — Maven plugin
+    # Card 2 — Maven plugin with left accent strip
     add_rect(slide, Inches(6.9), Inches(1.5), Inches(6.1), Inches(5.3), WHITE)
     add_rect(slide, Inches(6.9), Inches(1.5), Inches(6.1), Inches(0.55), TEAL)
+    add_rect(slide, Inches(6.9), Inches(2.05), Inches(0.05), Inches(4.75), TEAL)  # left accent
     add_text_box(slide, "CycloneDX Maven Plugin  —  In-House Java Code",
-                 Inches(7.0), Inches(1.55), Inches(5.9), Inches(0.45),
+                 Inches(7.04), Inches(1.57), Inches(5.86), Inches(0.45),
                  font_size=16, bold=True, color=WHITE)
     add_bullet_box(slide,
         ["Added directly to pom.xml — no extra tooling required",
@@ -253,7 +285,7 @@ def slide_how_sboms_generated(prs):
          "Uploads the SBOM to Dependency-Track automatically at build time",
          "Keeps vulnerability data current with every CI build",
          "Developers get instant feedback on new vulnerabilities introduced"],
-        Inches(7.05), Inches(2.2), Inches(5.8), Inches(4.3),
+        Inches(7.08), Inches(2.2), Inches(5.76), Inches(4.3),
         font_size=14, color=BLACK
     )
 
@@ -352,10 +384,10 @@ def slide_detection_tools(prs):
 
     # ── Left: SBOM Generation Tools ────────────────────────────────────────
     add_rect(slide, Inches(0.3), Inches(1.48), Inches(6.15), Inches(5.75), WHITE)
-    add_rect(slide, Inches(0.3), Inches(1.48), Inches(6.15), Inches(0.44), NAVY)
+    add_rect(slide, Inches(0.3), Inches(1.48), Inches(6.15), Inches(0.52), NAVY)   # taller header
     add_text_box(slide, "SBOM Generation Tools",
-                 Inches(0.44), Inches(1.53), Inches(5.87), Inches(0.36),
-                 font_size=14, bold=True, color=WHITE)
+                 Inches(0.44), Inches(1.55), Inches(5.87), Inches(0.4),
+                 font_size=15, bold=True, color=WHITE)
 
     tools = [
         (NAVY,  "cdxgen",
@@ -376,25 +408,25 @@ def slide_detection_tools(prs):
     ]
 
     for i, (col, name, desc) in enumerate(tools):
-        y = Inches(2.08 + i * 0.98)
+        y = Inches(2.12 + i * 0.98)
         add_rect(slide, Inches(0.44), y, Inches(0.18), Inches(0.78), col)
         add_text_box(slide, name,
-                     Inches(0.72), y + Inches(0.03), Inches(5.59), Inches(0.28),
+                     Inches(0.72), y + Inches(0.04), Inches(5.59), Inches(0.28),
                      font_size=12, bold=True, color=col)
         add_text_box(slide, desc,
-                     Inches(0.72), y + Inches(0.31), Inches(5.59), Inches(0.47),
-                     font_size=11, color=GREY)
+                     Inches(0.72), y + Inches(0.33), Inches(5.59), Inches(0.47),
+                     font_size=11, color=GREY, line_spacing=1.2)
 
     # ── Right: Vulnerability Intelligence Sources ──────────────────────────
     add_rect(slide, Inches(6.7), Inches(1.48), Inches(6.3), Inches(5.75), WHITE)
-    add_rect(slide, Inches(6.7), Inches(1.48), Inches(6.3), Inches(0.44), TEAL)
+    add_rect(slide, Inches(6.7), Inches(1.48), Inches(6.3), Inches(0.52), TEAL)    # taller header
     add_text_box(slide, "Vulnerability Intelligence Sources",
-                 Inches(6.84), Inches(1.53), Inches(6.02), Inches(0.36),
-                 font_size=14, bold=True, color=WHITE)
+                 Inches(6.84), Inches(1.55), Inches(6.02), Inches(0.4),
+                 font_size=15, bold=True, color=WHITE)
 
     add_text_box(slide,
         "Dependency-Track queries these feeds automatically — no manual CVE searching:",
-        Inches(6.84), Inches(2.02), Inches(6.02), Inches(0.32),
+        Inches(6.84), Inches(2.12), Inches(6.02), Inches(0.32),
         font_size=12, color=BLACK)
 
     sources = [
@@ -411,14 +443,14 @@ def slide_detection_tools(prs):
     ]
 
     for i, (col, name, desc) in enumerate(sources):
-        y = Inches(2.44 + i * 0.95)
+        y = Inches(2.55 + i * 0.95)
         add_rect(slide, Inches(6.84), y, Inches(0.18), Inches(0.75), col)
         add_text_box(slide, name,
-                     Inches(7.12), y + Inches(0.03), Inches(5.74), Inches(0.28),
+                     Inches(7.12), y + Inches(0.04), Inches(5.74), Inches(0.28),
                      font_size=12, bold=True, color=col)
         add_text_box(slide, desc,
-                     Inches(7.12), y + Inches(0.31), Inches(5.74), Inches(0.44),
-                     font_size=11, color=GREY)
+                     Inches(7.12), y + Inches(0.33), Inches(5.74), Inches(0.44),
+                     font_size=11, color=GREY, line_spacing=1.2)
 
 
 def slide_dt_overview(prs):
@@ -646,11 +678,13 @@ def slide_analysis_actions(prs):
         Inches(0.55), Inches(4.83), Inches(6.6), Inches(1.55),
         font_size=11, color=BLACK)
 
-    # Right — state legend
+    # Right — state legend with taller header
     add_rect(slide, Inches(7.65), Inches(1.55), Inches(5.35), Inches(5.65), WHITE)
+    add_rect(slide, Inches(7.65), Inches(1.55), Inches(5.35), Inches(0.55), NAVY)   # header strip
+    add_rect(slide, Inches(7.65), Inches(2.1), Inches(0.05), Inches(5.1), NAVY)      # left accent
     add_text_box(slide, "Available Analysis States",
-                 Inches(7.8), Inches(1.65), Inches(5.1), Inches(0.4),
-                 font_size=17, bold=True, color=NAVY)
+                 Inches(7.8), Inches(1.63), Inches(5.1), Inches(0.42),
+                 font_size=17, bold=True, color=WHITE)
     states = [
         (GREEN,  "NOT_AFFECTED",
          "The component is present but the vulnerability does not apply "
@@ -669,14 +703,14 @@ def slide_analysis_actions(prs):
          "affected code path is never invoked."),
     ]
     for i, (col, name, desc) in enumerate(states):
-        y = Inches(2.18 + i * 0.97)
-        add_rect(slide, Inches(7.75), y, Inches(2.1), Inches(0.35), col)
+        y = Inches(2.22 + i * 0.97)
+        add_rect(slide, Inches(7.75), y, Inches(2.1), Inches(0.38), col)
         add_text_box(slide, name,
-                     Inches(7.8), y + Inches(0.02), Inches(2.0), Inches(0.32),
+                     Inches(7.8), y + Inches(0.04), Inches(2.0), Inches(0.3),
                      font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
         add_text_box(slide, desc,
                      Inches(10.0), y, Inches(2.85), Inches(0.7),
-                     font_size=11, color=BLACK)
+                     font_size=11, color=BLACK, line_spacing=1.2)
 
 
 def slide_suppression(prs):
@@ -700,8 +734,9 @@ def slide_suppression(prs):
         "Audit trail records who suppressed a finding and when",
     ]
     add_rect(slide, Inches(0.3), Inches(1.55), Inches(6.2), Inches(4.5), WHITE)
+    add_rect(slide, Inches(0.3), Inches(1.55), Inches(0.05), Inches(4.5), TEAL)   # left accent
     add_bullet_box(slide, bullets_l,
-                   Inches(0.45), Inches(1.7), Inches(5.9), Inches(4.2),
+                   Inches(0.48), Inches(1.7), Inches(5.9), Inches(4.2),
                    font_size=14, color=BLACK,
                    title="How suppression works", title_size=16, title_color=NAVY)
 
@@ -745,9 +780,10 @@ def slide_reporting(prs):
 
     # Card 1 — Vulnerability report
     add_rect(slide, Inches(0.3), Inches(1.55), Inches(6.1), Inches(5.15), WHITE)
-    add_rect(slide, Inches(0.3), Inches(1.55), Inches(6.1), Inches(0.45), RED)
+    add_rect(slide, Inches(0.3), Inches(1.55), Inches(6.1), Inches(0.55), RED)    # taller header
+    add_rect(slide, Inches(0.3), Inches(2.1), Inches(0.05), Inches(4.6), RED)     # left accent
     add_text_box(slide, "Security Analysis (Vulnerability) Report",
-                 Inches(0.42), Inches(1.6), Inches(5.85), Inches(0.38),
+                 Inches(0.44), Inches(1.62), Inches(5.82), Inches(0.42),
                  font_size=14, bold=True, color=WHITE)
     add_bullet_box(slide,
         ["One report per project or across all projects",
@@ -757,15 +793,16 @@ def slide_reporting(prs):
          "Analyst comments and suppression status included",
          "Landscape A4 PDF — ready to share with management or auditors",
          "Auto-archived as a Jenkins build artefact"],
-        Inches(0.45), Inches(2.1), Inches(5.85), Inches(4.45),
+        Inches(0.48), Inches(2.18), Inches(5.76), Inches(4.4),
         font_size=13, color=BLACK
     )
 
     # Card 2 — SBOM component report
     add_rect(slide, Inches(6.9), Inches(1.55), Inches(6.1), Inches(5.15), WHITE)
-    add_rect(slide, Inches(6.9), Inches(1.55), Inches(6.1), Inches(0.45), TEAL)
+    add_rect(slide, Inches(6.9), Inches(1.55), Inches(6.1), Inches(0.55), TEAL)   # taller header
+    add_rect(slide, Inches(6.9), Inches(2.1), Inches(0.05), Inches(4.6), TEAL)    # left accent
     add_text_box(slide, "SBOM Component Report",
-                 Inches(7.02), Inches(1.6), Inches(5.85), Inches(0.38),
+                 Inches(7.04), Inches(1.62), Inches(5.82), Inches(0.42),
                  font_size=14, bold=True, color=WHITE)
     add_bullet_box(slide,
         ["Full component inventory: name, version, supplier, licence",
@@ -775,7 +812,7 @@ def slide_reporting(prs):
          "Identifies components with missing or restrictive licences",
          "Landscape A4 PDF — consistent, branded format",
          "Auto-archived as a Jenkins build artefact"],
-        Inches(7.05), Inches(2.1), Inches(5.85), Inches(4.45),
+        Inches(7.08), Inches(2.18), Inches(5.76), Inches(4.4),
         font_size=13, color=BLACK
     )
 
@@ -1006,10 +1043,10 @@ def slide_swagger_api(prs):
 
     # ── Left panel: Swagger UI ──────────────────────────────────────────────
     add_rect(slide, Inches(0.3), Inches(1.48), Inches(5.9), Inches(5.75), WHITE)
-    add_rect(slide, Inches(0.3), Inches(1.48), Inches(5.9), Inches(0.44), NAVY)
+    add_rect(slide, Inches(0.3), Inches(1.48), Inches(5.9), Inches(0.52), NAVY)    # taller header
     add_text_box(slide, "Swagger UI Explorer",
-                 Inches(0.44), Inches(1.53), Inches(5.62), Inches(0.36),
-                 font_size=14, bold=True, color=WHITE)
+                 Inches(0.44), Inches(1.55), Inches(5.62), Inches(0.4),
+                 font_size=15, bold=True, color=WHITE)
 
     add_text_box(slide,
         "Dependency-Track ships a built-in interactive OpenAPI / Swagger explorer.\n"
@@ -1039,10 +1076,10 @@ def slide_swagger_api(prs):
 
     # ── Right panel: Integration Ecosystem ─────────────────────────────────
     add_rect(slide, Inches(6.45), Inches(1.48), Inches(6.55), Inches(5.75), WHITE)
-    add_rect(slide, Inches(6.45), Inches(1.48), Inches(6.55), Inches(0.44), TEAL)
+    add_rect(slide, Inches(6.45), Inches(1.48), Inches(6.55), Inches(0.52), TEAL)  # taller header
     add_text_box(slide, "Integration Ecosystem",
-                 Inches(6.59), Inches(1.53), Inches(6.27), Inches(0.36),
-                 font_size=14, bold=True, color=WHITE)
+                 Inches(6.59), Inches(1.55), Inches(6.27), Inches(0.4),
+                 font_size=15, bold=True, color=WHITE)
 
     add_text_box(slide,
         "Full visibility from developer laptop to boardroom:",
@@ -1191,13 +1228,14 @@ def slide_benefits(prs):
         x = Inches(0.3 + col_n * 4.35)
         y = Inches(1.3 + row * 2.85)
         add_rect(slide, x, y, Inches(4.2), Inches(2.6), WHITE)
-        add_rect(slide, x, y, Inches(4.2), Inches(0.52), col)
+        add_rect(slide, x, y, Inches(4.2), Inches(0.58), col)       # taller header strip
+        add_rect(slide, x, y, Inches(0.05), Inches(2.6), col)        # left accent stripe
         add_text_box(slide, title,
-                     x + Inches(0.12), y + Inches(0.08), Inches(3.96), Inches(0.38),
+                     x + Inches(0.18), y + Inches(0.1), Inches(3.87), Inches(0.42),
                      font_size=16, bold=True, color=WHITE)
         add_text_box(slide, body,
-                     x + Inches(0.12), y + Inches(0.62), Inches(3.96), Inches(1.85),
-                     font_size=13, color=BLACK)
+                     x + Inches(0.18), y + Inches(0.68), Inches(3.87), Inches(1.8),
+                     font_size=13, color=BLACK, line_spacing=1.2)
 
 
 # ── Assemble presentation ──────────────────────────────────────────────────
