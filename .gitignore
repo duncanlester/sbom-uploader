@@ -1,0 +1,5 @@
+# Secret files — contain real credentials, never commit
+.env
+ldap_bind_password
+admin_password
+certs/
