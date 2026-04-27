@@ -29,6 +29,20 @@ services:
       ALPINE_DATABASE_DRIVER: org.postgresql.Driver
       ALPINE_DATABASE_USERNAME: dtrack
       ALPINE_DATABASE_PASSWORD: dtrack
+      # --- LDAP / Active Directory ---
+      ALPINE_LDAP_ENABLED: "true"
+      ALPINE_LDAP_SERVER_URL: "ldap://<AD_HOST>:389"   # use ldaps://<AD_HOST>:636 for TLS
+      ALPINE_LDAP_BASEDN: "dc=example,dc=com"
+      ALPINE_LDAP_BIND_USERNAME: "cn=svc-dtrack,ou=ServiceAccounts,dc=example,dc=com"
+      ALPINE_LDAP_BIND_PASSWORD: "changeme"
+      ALPINE_LDAP_AUTH_USERNAME_FORMAT: "{0}@example.com"  # or cn={0},ou=Users,dc=example,dc=com
+      ALPINE_LDAP_ATTRIBUTE_NAME: "cn"
+      ALPINE_LDAP_ATTRIBUTE_MAIL: "mail"
+      ALPINE_LDAP_GROUPS_BASEDN: "ou=Groups,dc=example,dc=com"
+      ALPINE_LDAP_GROUPS_FILTER: "(&(objectClass=group)(member={USER_DN}))"
+      ALPINE_LDAP_USER_GROUPS_FILTER: "(&(objectClass=group)(member={USER_DN}))"
+      ALPINE_LDAP_USER_PROVISIONING: "true"
+      ALPINE_LDAP_TEAM_SYNCHRONIZATION: "true"
       ALPINE_OIDC_ENABLED: "false"
     ports:
       - "8081:8080"    # host:container
