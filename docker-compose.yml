@@ -58,6 +58,21 @@ services:
     restart: unless-stopped
     networks:
       - dtrack-network
+  nginx:
+    image: nginx:alpine
+    container_name: dtrack-nginx
+    depends_on:
+      - dependency-track-frontend
+      - dependency-track-apiserver
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx-reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - dtrack-network
+    restart: unless-stopped
 
   dependency-track-frontend:
     container_name: dtrack-frontend
@@ -137,7 +152,3 @@ volumes:
 networks:
   dtrack-network:
     external: true
-#odt_X0Z4kHMv_1Bf2bxz9TbyBHZK87OcttmVV9MKcXpKr
-#irad-launchpad-bb
-#docker run --rm --volumes-from jenkins-master -v $(pwd):/backup busybox cp  <container-path>
-#docker run --rm --volumes-from jenkins-master -v $(pwd):/backup busybox sh -c "cd /var/jenkins_home && tar xvfz /backup/jenkins_home_data_1.tar.gz --strip 1"
