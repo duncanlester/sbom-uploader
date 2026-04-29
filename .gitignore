@@ -2,4 +2,5 @@
 .env
 ldap_bind_password
 admin_password
+postgres_password
 certs/

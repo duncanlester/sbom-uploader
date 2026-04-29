@@ -5,7 +5,9 @@ services:
     environment:
       POSTGRES_DB: dtrack
       POSTGRES_USER: dtrack
-      POSTGRES_PASSWORD: dtrack
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
       - dtrack_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +30,7 @@ services:
       ALPINE_DATABASE_URL: jdbc:postgresql://postgres:5432/dtrack
       ALPINE_DATABASE_DRIVER: org.postgresql.Driver
       ALPINE_DATABASE_USERNAME: dtrack
-      ALPINE_DATABASE_PASSWORD: dtrack
+      ALPINE_DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
       # --- LDAP / Active Directory ---
       ALPINE_LDAP_ENABLED: "true"
       ALPINE_LDAP_SERVER_URL: "${LDAP_SERVER_URL}"
@@ -46,6 +48,7 @@ services:
       ALPINE_OIDC_ENABLED: "false"
     secrets:
       - ldap_bind_password
+      - postgres_password
     ports:
       - "8081:8080"    # host:container
     volumes:
@@ -125,6 +128,8 @@ secrets:
     file: ./admin_password
   ldap_bind_password:
     file: ./ldap_bind_password
+  postgres_password:
+    file: ./postgres_password
 
 volumes:
   dtrack_postgres_data:
