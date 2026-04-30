@@ -154,4 +154,3 @@ volumes:
 networks:
   dtrack-network:
     external: true
-
