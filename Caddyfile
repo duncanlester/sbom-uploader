@@ -1,0 +1,21 @@
+# Caddyfile for Dependency Track stack
+# s-track-01.rdmz.isridev.com with your real domain
+
+strack-01.rdmz.isridev.com {
+    encode gzip
+    reverse_proxy /api/* dtrack-apiserver:8080
+    reverse_proxy /swagger* swagger-ui:8080
+    reverse_proxy /swagger-editor* swagger-editor:8080
+    reverse_proxy / dtrack-frontend:8080
+    header {
+        # Security headers
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+    tls /certs/example-cert.pem /certs/example-key.pem {
+        # Using custom certificate and key
+        # Replace with your actual cert and key file paths
+    }
+}
