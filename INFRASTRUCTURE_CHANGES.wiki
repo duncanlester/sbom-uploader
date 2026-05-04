@@ -1,0 +1,515 @@
+h1. DependencyTrack Setup Guide - Backups & Docker Swarm
+
+h2. Overview
+
+Complete guide for setting up DependencyTrack with Docker Swarm, automated PostgreSQL backups via Borgmatic, and encrypted secret management.
+
+---
+
+h2. Architecture
+
+h3. Components
+
+* *PostgreSQL* - Database with persistent external storage
+* *DependencyTrack API Server* - Scalable API layer
+* *DependencyTrack Frontend* - Web UI
+* *Borgmatic* - Automated backup service
+* *Caddy* - Reverse proxy with TLS
+* *Swagger UI/Editor* - API documentation
+* *Docker Swarm* - Container orchestration and secret management
+
+h3. Data Flow
+
+{color:blue}
+[Services] → [Docker Swarm Network] → [PostgreSQL] → [External Volume]
+[Borgmatic] → [PostgreSQL] → [Backup] → [Network Share (/mnt/borg-repository)]
+Secrets → [Docker Swarm Encrypted Store] → [Services]
+{color}
+
+---
+
+h2. Prerequisites
+
+* Docker Engine installed
+* Network share available (NFS or SMB/CIFS)
+* The provided {{docker-compose.yml}} and {{borgmatic-config.yaml}} files
+* Secret files: {{db_password}} and {{admin_password}}
+
+---
+
+h2. Step-by-Step Setup
+
+h3. Step 1: Initialize Docker Swarm
+
+{code:bash}
+docker swarm init
+{code}
+
+This initializes your machine as a Swarm manager. Output will show:
+
+{code}
+Swarm initialized: current node (xxxxx) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-1-xxxxx <manager-ip>:2377
+{code}
+
+To add additional nodes later, use the command provided above.
+
+h3. Step 2: Create Docker Secrets
+
+From the directory containing your secret files:
+
+{code:bash}
+docker secret create db_password - < ./db_password
+docker secret create admin_password - < ./admin_password
+{code}
+
+Verify creation:
+{code:bash}
+docker secret ls
+{code}
+
+Both secrets should appear in the list. These are now encrypted and only accessible to services that request them.
+
+h3. Step 3: Configure Environment Variables
+
+Create a {{.env}} file in your deployment directory:
+
+{code}
+# PostgreSQL Configuration
+POSTGRES_PASSWORD=<your_postgres_password>
+
+# LDAP / Active Directory Configuration
+LDAP_SERVER_URL=ldaps://<your-ldap-server>:636
+LDAP_BASEDN=dc=example,dc=com
+LDAP_BIND_USERNAME=cn=svc-dtrack,ou=ServiceAccounts,dc=example,dc=com
+LDAP_BIND_PASSWORD=<your_ldap_password>
+LDAP_AUTH_USERNAME_FORMAT=%s@example.com
+LDAP_ATTRIBUTE_NAME=userPrincipalName
+LDAP_ATTRIBUTE_MAIL=mail
+LDAP_GROUPS_BASEDN=ou=Groups,dc=example,dc=com
+LDAP_GROUPS_FILTER=(& (objectClass=group)(objectCategory=Group))
+LDAP_USER_GROUPS_FILTER=(member: 1.2.840.113556.1.4.1941:={USER_DN})
+
+# Borgmatic Backup Configuration
+BORG_PASSPHRASE=<your_strong_borg_passphrase>
+{code}
+
+h3. Step 4: Create Docker Overlay Network
+
+{code:bash}
+docker network create --driver overlay dtrack-network
+{code}
+
+This creates a network that spans across multiple nodes (if you add workers later).
+
+h3. Step 5: Create External Volumes
+
+{code:bash}
+docker volume create dtrack_postgres_data
+docker volume create dtrack_apiserver_data
+docker volume create swagger
+{code}
+
+These volumes persist data across container restarts and node failures.
+
+h3. Step 6: Mount Network Share for Backups
+
+Create the mount point:
+{code:bash}
+sudo mkdir -p /mnt/borg-repository
+{code}
+
+*For NFS:*
+{code:bash}
+sudo mount -t nfs <nfs-server>:<nfs-path> /mnt/borg-repository
+{code}
+
+*For SMB/CIFS:*
+{code:bash}
+sudo mount -t cifs //<smb-server>/<share> /mnt/borg-repository -o username=<user>,password=<pass>
+{code}
+
+*To make it permanent, add to /etc/fstab:*
+{code:bash}
+# For NFS:
+<nfs-server>:<nfs-path>  /mnt/borg-repository  nfs  defaults,nofail  0  0
+
+# For SMB:
+//<smb-server>/<share>  /mnt/borg-repository  cifs  username=<user>,password=<pass>,nofail  0  0
+{code}
+
+Then mount:
+{code:bash}
+sudo mount -a
+{code}
+
+h3. Step 7: Deploy the Stack
+
+{code:bash}
+docker stack deploy -c docker-compose.yml dtrack
+{code}
+
+All services from {{docker-compose.yml}} are now deployed. The stack name is {{dtrack}}, so services appear as:
+* {{dtrack_postgres}}
+* {{dtrack_dependency-track-apiserver}}
+* {{dtrack_borgmatic}}
+* {{dtrack_caddy}}
+* {{dtrack_dependency-track-frontend}}
+* {{dtrack_swagger-ui}}
+* {{dtrack_swagger-editor}}
+
+h3. Step 8: Verify Deployment
+
+Check stack status:
+{code:bash}
+docker stack ls
+docker stack services dtrack
+docker stack ps dtrack
+{code}
+
+Wait for all services to show as "Running":
+{code:bash}
+docker stack ps dtrack --no-trunc
+{code}
+
+Check individual service logs:
+{code:bash}
+docker service logs dtrack_postgres
+docker service logs dtrack_dependency-track-apiserver
+docker service logs dtrack_borgmatic
+{code}
+
+---
+
+h2. Borgmatic Backup Configuration
+
+h3. What is Borgmatic?
+
+Borgmatic is a backup wrapper for Borg that manages backups with:
+* Automated scheduling
+* Configurable retention policies
+* Encryption and compression
+* Built-in integrity checks
+
+h3. Configuration (borgmatic-config.yaml)
+
+{code:yaml}
+---
+repositories:
+  - label: postgres_backup
+    path: /mnt/borg-repository
+
+retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 12
+
+postgresql_databases:
+  - name: dtrack
+    hostname: postgres
+    port: 5432
+    username: dtrack
+    password_command: cat /run/secrets/db_password
+    options: null
+
+checks:
+  - name: repository
+    frequency: 2 weeks
+  - name: archives
+    frequency: 4 weeks
+{code}
+
+h3. Backup Details
+
+* *Repository*: {{/mnt/borg-repository}} (mounted network share)
+* *Database*: {{dtrack}} PostgreSQL database
+* *Connection*: Via Docker Swarm network (hostname {{postgres}})
+* *Authentication*: From Docker Swarm secret {{/run/secrets/db_password}}
+* *Encryption*: {{BORG_PASSPHRASE}} from {{.env}} file
+* *Retention*:
+  ** 7 daily backups
+  ** 4 weekly backups
+  ** 12 monthly backups
+
+h3. Backup Workflow
+
+{color:blue}
+1. Borgmatic container starts when postgres is healthy
+2. Connects to PostgreSQL via Docker Swarm network (hostname: postgres)
+3. Authenticates using password from {{/run/secrets/db_password}}
+4. Performs logical database backup via {{pg_dump}}
+5. Stores backup in Borg repository at {{/mnt/borg-repository}}
+6. Borg deduplicates and compresses backups
+7. Encryption applied using {{BORG_PASSPHRASE}}
+8. Old backups removed based on retention policy
+9. Integrity checks run on schedule
+{color}
+
+---
+
+h2. Security Model
+
+h3. Secret Management
+
+Secrets are encrypted at rest by Docker Swarm:
+
+* {{db_password}} - PostgreSQL database password
+  ** Created: {{docker secret create db_password - < ./db_password}}
+  ** Available at: {{/run/secrets/db_password}} in containers
+  ** Used by: postgres, borgmatic
+* {{admin_password}} - DependencyTrack admin password
+  ** Created: {{docker secret create admin_password - < ./admin_password}}
+  ** Available at: {{/run/secrets/admin_password}} in containers
+* {{BORG_PASSPHRASE}} - Backup encryption key
+  ** Stored in: {{.env}} file
+  ** Available as environment variable to borgmatic
+  ** Used for: Encrypting backups in Borg repository
+
+h3. Why This Is Secure
+
+* Secrets never appear in plaintext in config files
+* Only services that request secrets can access them
+* Secrets encrypted at rest by Swarm
+* Borg backups encrypted with passphrase
+* Easy to rotate secrets without container rebuilds
+
+---
+
+h2. Operational Commands
+
+h3. Deployment
+
+Deploy the stack:
+{code:bash}
+docker stack deploy -c docker-compose.yml dtrack
+{code}
+
+Remove the stack (keeps volumes intact):
+{code:bash}
+docker stack rm dtrack
+{code}
+
+h3. Monitoring
+
+View all services:
+{code:bash}
+docker service ls
+{code}
+
+View service status:
+{code:bash}
+docker stack ps dtrack
+{code}
+
+View service logs:
+{code:bash}
+docker service logs dtrack_<service_name>
+
+# Examples:
+docker service logs dtrack_postgres
+docker service logs dtrack_borgmatic
+docker service logs dtrack_dependency-track-apiserver
+
+# Follow logs (like tail -f):
+docker service logs -f dtrack_borgmatic
+{code}
+
+h3. Scaling
+
+Scale the API server to multiple replicas:
+{code:bash}
+docker service scale dtrack_dependency-track-apiserver=3
+{code}
+
+Note: PostgreSQL should remain at 1 replica (single instance).
+
+h3. Service Management
+
+Restart a service:
+{code:bash}
+docker service update --force dtrack_postgres
+{code}
+
+Update environment variables:
+{code:bash}
+docker service update --env-add NEW_VAR=value dtrack_dependency-track-apiserver
+{code}
+
+h3. Secret Rotation
+
+Update a secret (e.g., database password):
+{code:bash}
+# Remove old secret
+docker secret rm db_password
+
+# Create new secret
+docker secret create db_password - < ./new_db_password
+
+# Force services to restart with new secret
+docker service update --force dtrack_postgres
+docker service update --force dtrack_borgmatic
+{code}
+
+---
+
+h2. Backup Management
+
+h3. Verify Backups Are Working
+
+{code:bash}
+# Check borgmatic service logs
+docker service logs dtrack_borgmatic
+
+# Verify backup repository exists and has data
+ls -la /mnt/borg-repository
+
+# List all backups in repository
+borg list /mnt/borg-repository
+{code}
+
+h3. List Backup Archives
+
+{code:bash}
+borg list /mnt/borg-repository
+{code}
+
+h3. View Backup Details
+
+{code:bash}
+borg info /mnt/borg-repository::backup-name
+{code}
+
+h3. Test Restore (Non-Destructive)
+
+{code:bash}
+# Extract backup to test directory
+mkdir -p /tmp/restore_test
+cd /tmp/restore_test
+borg extract /mnt/borg-repository::backup-name
+{code}
+
+h3. Restore from Backup (If Needed)
+
+Create a new PostgreSQL container and restore:
+{code:bash}
+# Extract backup
+borg extract /mnt/borg-repository::backup-name
+
+# Restore to database
+psql -U dtrack -d dtrack < /path/to/dump.sql
+{code}
+
+---
+
+h2. Troubleshooting
+
+h3. Services Not Starting
+
+Check logs:
+{code:bash}
+docker service logs dtrack_<service_name>
+{code}
+
+Verify prerequisites:
+{code:bash}
+# Check network exists
+docker network ls | grep dtrack-network
+
+# Check volumes exist
+docker volume ls | grep dtrack
+
+# Check secrets exist
+docker secret ls
+{code}
+
+h3. Borgmatic Not Backing Up
+
+{code:bash}
+# Check borgmatic logs for errors
+docker service logs dtrack_borgmatic
+
+# Verify network share is mounted
+ls /mnt/borg-repository
+
+# Verify secret exists
+docker secret ls | grep db_password
+{code}
+
+h3. PostgreSQL Not Starting
+
+{code:bash}
+# Check logs
+docker service logs dtrack_postgres
+
+# Verify external volume exists
+docker volume inspect dtrack_postgres_data
+
+# Check volume permissions
+{code}
+
+h3. Network Share Not Mounting
+
+{code:bash}
+# Test NFS mount
+showmount -e <nfs-server>
+
+# Test SMB share
+smbclient -L //<smb-server>/<share>
+
+# Check firewall (NFS: 111, 2049; SMB: 139, 445)
+{code}
+
+h3. High CPU/Memory Usage
+
+{code:bash}
+# Scale down services
+docker service scale dtrack_dependency-track-apiserver=1
+
+# Check resource usage
+docker stats
+{code}
+
+---
+
+h2. Architecture Advantages
+
+h3. Reliability
+
+✓ Services automatically restart on failure
+✓ Persistent volumes survive container restarts
+✓ Secrets managed securely by Swarm
+✓ External storage for critical data
+
+h3. Recoverability
+
+✓ Automated PostgreSQL backups
+✓ Encryption at rest and in transit
+✓ Configurable retention policies
+✓ Network storage prevents single-point failure
+
+h3. Scalability
+
+✓ API servers can scale horizontally
+✓ Database remains single instance (correct for this load)
+✓ Easy to add worker nodes to Swarm
+✓ Service discovery automatic via Docker networking
+
+h3. Operational Simplicity
+
+✓ Single command deployment: {{docker stack deploy}}
+✓ Centralized logging via {{docker service logs}}
+✓ Easy secret management
+✓ No Kubernetes complexity
+
+---
+
+h2. Files Reference
+
+* {{docker-compose.yml}} - Service definitions
+* {{borgmatic-config.yaml}} - Backup configuration
+* {{.env}} - Environment variables and secrets
+* {{SWARM_SETUP.md}} - Quick deployment reference
+* {{INFRASTRUCTURE_CHANGES.wiki}} - This complete guide

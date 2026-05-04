@@ -5,9 +5,9 @@ services:
     environment:
       POSTGRES_DB: dtrack
       POSTGRES_USER: dtrack
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets:
-      - postgres_password
+      - db_password
     volumes:
       - dtrack_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -38,29 +38,24 @@ services:
       ALPINE_LDAP_BIND_USERNAME: "${LDAP_BIND_USERNAME}"
       ALPINE_LDAP_BIND_PASSWORD: "${LDAP_BIND_PASSWORD}"
       ALPINE_LDAP_AUTH_USERNAME_FORMAT: "${LDAP_AUTH_USERNAME_FORMAT}"
-      ALPINE_LDAP_ATTRIBUTE_NAME: "${LDAP_ATTRIBUTE_NAME}"
-      ALPINE_LDAP_ATTRIBUTE_MAIL: "${LDAP_ATTRIBUTE_MAIL}"
-      ALPINE_LDAP_GROUPS_BASEDN: "${LDAP_GROUPS_BASEDN}"
-      ALPINE_LDAP_GROUPS_FILTER: "${LDAP_GROUPS_FILTER}"
-      ALPINE_LDAP_USER_GROUPS_FILTER: "${LDAP_USER_GROUPS_FILTER}"
       ALPINE_LDAP_USER_PROVISIONING: "true"
       ALPINE_LDAP_TEAM_SYNCHRONIZATION: "true"
       ALPINE_OIDC_ENABLED: "false"
-    ports:
-      - "8081:8080"    # host:container
     volumes:
       - dtrack_apiserver_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/api/v1/version || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider https://s-track-01.rdmz.isridev.com/api/v1/version || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
     restart: unless-stopped
     networks:
       - dtrack-network
+
   caddy:
-    image: caddy:2-alpine
+    image: caddy:latest
     container_name: dtrack-caddy
+    pull_policy: always
     depends_on:
       - dependency-track-frontend
       - dependency-track-apiserver
@@ -69,9 +64,14 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--spider", "https://s-track-01.rdmz.isridev.com"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/certs:ro  # Mount your certs directory here
+      - ./certs:/etc/pki/tls/certs:ro
     networks:
       - dtrack-network
     restart: unless-stopped
@@ -82,11 +82,9 @@ services:
     depends_on:
       - dependency-track-apiserver
     environment:
-      API_BASE_URL: "http://localhost:8081"
-    ports:
-      - "8082:8080"
+      API_BASE_URL: "https://s-track-01.rdmz.isridev.com/api"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081 || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider https://s-track-01.rdmz.isridev.com || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -100,8 +98,6 @@ services:
     depends_on:
       - dependency-track-apiserver
     container_name: swagger-editor
-    ports:
-      - "8083:8080"
     volumes:
       - swagger:/usr/share/nginx/html/swagger
       - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
@@ -119,29 +115,40 @@ services:
     depends_on:
       - dependency-track-apiserver
     container_name: swagger-ui
-    ports:
-      - "8084:8080"
     volumes:
       - swagger:/usr/share/nginx/html/swagger
-      - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
-      - ./dependencytrack-openapi.yaml:/usr/share/nginx/html/swagger/dependencytrack.yaml:ro
-      - ./jenkins-openapi.yaml:/usr/share/nginx/html/swagger/jenkins.yaml:ro
+      - ./specs:/usr/share/nginx/html/swagger/specs:ro
     environment:
-      SWAGGER_JSON_URL: http://localhost:8081/api/openapi.yaml
+      SWAGGER_JSON_URL: https://s-track-01.rdmz.isridev.com/api/api/openapi.yaml
       VALIDATOR_URL: none
     restart: unless-stopped
     networks:
       - dtrack-network
-# to access
-# Dependency Track API: http://localhost:8084/swagger/dependencytrack.yaml
-# Jenkins API: http://localhost:8084/swagger/jenkins.yaml
-# Watchtower API: http://localhost:8084/swagger/watchtower.yaml
+
+  borgmatic:
+    image: b3vis/borgmatic:latest
+    container_name: dtrack-borgmatic
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BORG_PASSPHRASE: "${BORG_PASSPHRASE}"
+      TZ: UTC
+    secrets:
+      - db_password
+    volumes:
+      - ./borgmatic-config.yaml:/etc/borgmatic.d/borgmatic.yaml:ro
+      - /mnt/borg-repository:/mnt/borg-repository
+    command: /bin/bash -c "borgmatic --config /etc/borgmatic.d/borgmatic.yaml"
+    restart: unless-stopped
+    networks:
+      - dtrack-network
 
 secrets:
   admin_password:
-    file: ./admin_password
-  postgres_password:
-    file: ./postgres_password
+    external: true
+  db_password:
+    external: true
 
 volumes:
   dtrack_postgres_data:
