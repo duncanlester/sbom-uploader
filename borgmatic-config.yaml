@@ -1,0 +1,36 @@
+---
+source_directories:
+  - /var/lib/postgresql/data
+
+repositories:
+  - label: postgres_backup
+    path: /mnt/borg-repository
+    passcommand: cat /run/secrets/borg_passphrase
+
+retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 12
+
+postgresql_databases:
+  - name: dtrack
+    hostname: postgres
+    port: 5432
+    username: dtrack
+    password_command: cat /run/secrets/db_password
+    options: null
+
+checks:
+  - name: repository
+    frequency: 2 weeks
+  - name: archives
+    frequency: 4 weeks
+
+# Run backup every day
+# This is meant to be scheduled with cron or similar
+# For Docker, recommend running with docker-compose exec or a separate scheduler
+
+excludes:
+  - "*.pyc"
+  - "*.tmp"
+  - "__pycache__"

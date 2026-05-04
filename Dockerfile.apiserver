@@ -1,0 +1,8 @@
+FROM dependencytrack/apiserver:latest
+
+# Copy entrypoint script that reads Docker Swarm secrets and injects as env vars
+COPY entrypoint.sh /
+RUN chmod +x /entrypoint.sh
+
+# Override entrypoint to use our wrapper
+ENTRYPOINT ["/entrypoint.sh", "/usr/bin/tini", "--"]

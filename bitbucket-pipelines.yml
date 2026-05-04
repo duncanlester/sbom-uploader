@@ -1,0 +1,23 @@
+image: atlassian/default-image:latest
+
+pipelines:
+  schedules:
+    weekly:
+      - step:
+          name: Build and Push DependencyTrack API Server
+          script:
+            - export IMAGE_NAME="$DOCKER_HUB_USER/dtrack-apiserver"
+            - export IMAGE_TAG="latest"
+            - docker build -f Dockerfile.apiserver -t $IMAGE_NAME:$IMAGE_TAG .
+            - echo $DOCKER_HUB_PASSWORD | docker login -u $DOCKER_HUB_USER
+              --password-stdin
+            - docker push $IMAGE_NAME:$IMAGE_TAG
+            - docker logout
+          services:
+            - docker
+          after-script:
+            - |
+              if [ $? -ne 0 ]; then
+                echo "Build or push failed"
+                exit 1
+              fi

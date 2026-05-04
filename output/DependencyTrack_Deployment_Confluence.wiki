@@ -1,0 +1,133 @@
+h1. Deployment of Dependency Track Flow
+
+This document describes how to deploy Dependency Track using Docker Compose, with secure authentication, HTTPS, and a production-ready reverse proxy.
+
+h2. Overview
+
+Dependency Track is deployed as a multi-container stack using Docker Compose. The setup includes:
+* Dependency Track API server
+* Dependency Track frontend
+* Swagger UI and Swagger Editor for API documentation
+* Caddy reverse proxy for unified HTTPS access
+* Permanent storage for application data
+
+h2. Key Features
+
+* *Secure authentication* via LDAP/Active Directory (configurable)
+* *HTTPS* enabled using Caddy reverse proxy (supports custom certificates)
+* *Single-origin access* for all services (no CORS issues)
+* *Permanent storage* for all Dependency Track data
+* *Healthchecks* for all major services
+* *Automatic image updates* with Docker Compose pull policy
+
+h2. Directory Structure
+
+|| Directory/File || Purpose ||
+| docker-compose.yml | Main stack definition |
+| Caddyfile | Caddy reverse proxy configuration |
+| certs/ | Directory for SSL/TLS certificates and private keys |
+| output/ | Reports and documentation |
+| resources/scripts/ | Utility scripts |
+
+h2. Caddy Reverse Proxy
+
+Caddy is used as a reverse proxy to:
+* Terminate HTTPS (using Let's Encrypt or custom certificates)
+* Route all traffic to the correct service (API, frontend, Swagger)
+* Enforce security headers
+
+h3. Custom Certificates
+To use your own certificate and private key, place them in the certs/ directory and reference them in the Caddyfile:
+
+{code}
+tls /certs/your-cert.cer /certs/your-key.key
+{code}
+
+h2. Environment Configuration
+
+All non-secret configuration is managed via environment variables in the Docker Compose file. Secrets (such as admin passwords) are managed using Docker secrets and are not stored in version control.
+
+h2. Healthchecks
+
+Each service includes a healthcheck to ensure reliability and automatic restarts if a service becomes unhealthy.
+
+h2. Keeping Images Up to Date
+
+The stack uses the latest images for all services and sets the pull policy to always. To update all images, run:
+{code}
+docker compose pull
+{code}
+
+h2. Deployment Steps
+
+h3. Step 1: Create External Volumes
+
+{code:bash}
+docker volume create dtrack_postgres_data
+docker volume create dtrack_apiserver_data
+docker volume create swagger
+{code}
+
+These volumes persist data across container restarts and upgrades.
+
+h3. Step 2: Deploy the Stack
+
+{code:bash}
+docker compose up -d
+{code}
+
+h3. Step 3: Verify Deployment
+
+{code:bash}
+docker compose ps
+{code}
+
+All services should show as "running".
+
+h2. Permanent Storage
+
+All application data is stored in persistent volumes to ensure data is retained across restarts and upgrades.
+
+h2. Accessing the Application
+
+Once deployed, access the stack via HTTPS at your configured domain. All services (API, frontend, Swagger UI/Editor) are available under the same origin.
+
+h2. Security Notes
+
+* Only the Caddy container has access to SSL/TLS private keys.
+* Secrets are never stored in version control.
+* All services are isolated on a private Docker network.
+
+h2. Troubleshooting
+
+* Check service health with Docker Compose commands:
+{code}
+docker compose ps
+{code}
+* Review logs for any service:
+{code}
+docker compose logs <service>
+{code}
+
+h2. References
+
+* [Dependency Track Documentation|https://docs.dependencytrack.org/]
+* [Caddy Documentation|https://caddyserver.com/docs/]
+* [Docker Compose Documentation|https://docs.docker.com/compose/]
+
+h2. Encrypting and Decrypting Secrets
+
+To safely commit your .env and secrets files to version control, use the provided script to encrypt or decrypt them with a password:
+
+* To encrypt:
+{code}
+./resources/scripts/secret_encryptor.sh encrypt .env admin_password postgres_password
+{code}
+* To decrypt:
+{code}
+./resources/scripts/secret_encryptor.sh decrypt .env.enc admin_password.enc postgres_password.enc
+{code}
+
+You will be prompted for a password during both encryption and decryption. Choose a strong password and remember it—anyone with this password can decrypt the files, and without it, the files cannot be recovered. Do not share the password in the repository.
+
+Only commit the .enc files to git, never the unencrypted secrets.

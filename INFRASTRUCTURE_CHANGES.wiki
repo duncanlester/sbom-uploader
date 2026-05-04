@@ -64,6 +64,7 @@ From the directory containing your secret files:
 {code:bash}
 docker secret create db_password - < ./db_password
 docker secret create admin_password - < ./admin_password
+docker secret create borg_passphrase - < ./borg_passphrase
 {code}
 
 Verify creation:
@@ -71,7 +72,7 @@ Verify creation:
 docker secret ls
 {code}
 
-Both secrets should appear in the list. These are now encrypted and only accessible to services that request them.
+All three secrets should appear in the list. These are now encrypted and only accessible to services that request them.
 
 h3. Step 3: Configure Environment Variables
 
@@ -92,9 +93,6 @@ LDAP_ATTRIBUTE_MAIL=mail
 LDAP_GROUPS_BASEDN=ou=Groups,dc=example,dc=com
 LDAP_GROUPS_FILTER=(& (objectClass=group)(objectCategory=Group))
 LDAP_USER_GROUPS_FILTER=(member: 1.2.840.113556.1.4.1941:={USER_DN})
-
-# Borgmatic Backup Configuration
-BORG_PASSPHRASE=<your_strong_borg_passphrase>
 {code}
 
 h3. Step 4: Create Docker Overlay Network
@@ -201,6 +199,7 @@ h3. Configuration (borgmatic-config.yaml)
 repositories:
   - label: postgres_backup
     path: /mnt/borg-repository
+    passcommand: cat /run/secrets/borg_passphrase
 
 retention:
   keep_daily: 7
@@ -227,8 +226,8 @@ h3. Backup Details
 * *Repository*: {{/mnt/borg-repository}} (mounted network share)
 * *Database*: {{dtrack}} PostgreSQL database
 * *Connection*: Via Docker Swarm network (hostname {{postgres}})
-* *Authentication*: From Docker Swarm secret {{/run/secrets/db_password}}
-* *Encryption*: {{BORG_PASSPHRASE}} from {{.env}} file
+* *Database Authentication*: From Docker Swarm secret {{/run/secrets/db_password}}
+* *Backup Encryption*: From Docker Swarm secret {{/run/secrets/borg_passphrase}}
 * *Retention*:
   ** 7 daily backups
   ** 4 weekly backups
@@ -263,9 +262,9 @@ Secrets are encrypted at rest by Docker Swarm:
 * {{admin_password}} - DependencyTrack admin password
   ** Created: {{docker secret create admin_password - < ./admin_password}}
   ** Available at: {{/run/secrets/admin_password}} in containers
-* {{BORG_PASSPHRASE}} - Backup encryption key
-  ** Stored in: {{.env}} file
-  ** Available as environment variable to borgmatic
+* {{borg_passphrase}} - Backup encryption key
+  ** Created: {{docker secret create borg_passphrase - < ./borg_passphrase}}
+  ** Available at: {{/run/secrets/borg_passphrase}} in containers
   ** Used for: Encrypting backups in Borg repository
 
 h3. Why This Is Secure
@@ -350,6 +349,18 @@ docker secret create db_password - < ./new_db_password
 
 # Force services to restart with new secret
 docker service update --force dtrack_postgres
+docker service update --force dtrack_borgmatic
+{code}
+
+Update backup encryption passphrase:
+{code:bash}
+# Remove old secret
+docker secret rm borg_passphrase
+
+# Create new secret
+docker secret create borg_passphrase - < ./new_borg_passphrase
+
+# Force service restart
 docker service update --force dtrack_borgmatic
 {code}
 

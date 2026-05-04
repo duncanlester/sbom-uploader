@@ -329,7 +329,6 @@ Adopting the SBOM pipeline and Dependency-Track gives engineering, security, and
 
 {tip:title=Integration Ecosystem}
 The Dependency-Track REST API enables integration with Jira, Splunk, Grafana, and executive dashboards — full visibility from developer laptop to boardroom.
-{tip}
 
 ----
 
