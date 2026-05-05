@@ -1,0 +1,427 @@
+h1. DependencyTrack Stack Installation & Deployment Guide
+
+This guide covers the complete installation and deployment of the DependencyTrack stack with PostgreSQL, Borgmatic backups, LDAP authentication, Caddy reverse proxy, and supporting services.
+
+h2. Architecture Overview
+
+* *Services*: PostgreSQL, DependencyTrack API Server, Frontend, Swagger Editor/UI, Borgmatic backup, Caddy reverse proxy, Watchtower auto-updates
+* *Orchestration*: Docker Swarm (single manager node)
+* *Networking*: External overlay network ({{dtrack-network}})
+* *Storage*: External volumes for data persistence
+* *Security*: Encrypted secrets, LDAP/AD authentication, TLS via Caddy
+
+h2. Prerequisites
+
+* Docker Engine with Swarm enabled
+* Deployment server: {{s-track-01.rdmz.isridev.com}}
+* Network share mounted at {{/mnt/borg-repository}} (for backups)
+* LDAP/Active Directory credentials
+* OpenSSL for secret encryption
+
+h2. Step 1: Prepare Secrets
+
+h3. Create Secret Files
+
+Create the following unencrypted secret files in the project root:
+
+bc.
+# Create db_password file
+echo "your-postgres-password" > db_password
+
+# Create admin_password file
+echo "your-admin-password" > admin_password
+
+# Keep .env with all variables
+cat > .env << 'EOF'
+POSTGRES_PASSWORD=your-postgres-password
+LDAP_SERVER_URL=ldaps://ldap-server:636
+LDAP_BASEDN=dc=example,dc=com
+LDAP_BIND_USERNAME=ldap-bind-user
+LDAP_BIND_PASSWORD=ldap-bind-password
+LDAP_AUTH_USERNAME_FORMAT=%s@example.com
+LDAP_ATTRIBUTE_NAME=userPrincipalName
+LDAP_ATTRIBUTE_MAIL=mail
+LDAP_GROUPS_BASEDN=ou=Groups,dc=example,dc=com
+LDAP_GROUPS_FILTER=(& (objectClass=group)(objectCategory=Group))
+LDAP_USER_GROUPS_FILTER=(member: 1.2.840.113556.1.4.1941:={USER_DN})
+BORG_PASSPHRASE=your-borgmatic-passphrase
+EOF
+
+h3. Encrypt Secrets Before Deployment
+
+Use the {{secret_encryptor.sh}} script to encrypt sensitive files:
+
+bc.
+./resources/scripts/secret_encryptor.sh encrypt db_password admin_password .env
+
+This creates encrypted versions:
+* {{db_password.enc}}
+* {{admin_password.enc}}
+* {{.env.enc}}
+
+The script uses AES-256-CBC encryption. You will be prompted for a passphrase.
+
+h3. Transfer Encrypted Files to Deployment Server
+
+bc.
+scp db_password.enc admin_password.enc .env.enc deploy@s-track-01:/tmp/
+
+h3. Decrypt on Deployment Server
+
+bc.
+ssh deploy@s-track-01
+
+# From /tmp
+./secret_encryptor.sh decrypt db_password.enc admin_password.enc .env.enc
+
+# Move to deployment directory
+mv db_password admin_password .env ~/sbom-uploader/
+cd ~/sbom-uploader
+
+# Secure the directory
+chmod 700 .
+
+# Verify secrets are in place
+cat db_password
+cat .env
+
+h2. Step 2: Initialize Docker Swarm
+
+If not already initialized:
+
+bc.
+docker swarm init
+
+Verify:
+bc.
+docker swarm ls
+
+h2. Step 3: Create External Resources
+
+h3. Create Docker Secrets
+
+These are mounted at {{/run/secrets/}} and injected into containers:
+
+bc.
+docker secret create db_password db_password
+docker secret create admin_password admin_password
+
+Verify:
+bc.
+docker secret ls
+
+h3. Create External Volumes
+
+bc.
+docker volume create dtrack_postgres_data
+docker volume create dtrack_apiserver_data
+docker volume create swagger
+
+Verify:
+bc.
+docker volume ls
+
+h3. Create External Network
+
+bc.
+docker network create --driver overlay dtrack-network
+
+Verify:
+bc.
+docker network ls
+
+h2. Step 4: Configure Deployment
+
+h3. Update Caddyfile
+
+Configure reverse proxy with your TLS certificate:
+
+bc.
+{
+  email your-email@example.com
+}
+
+s-track-01.rdmz.isridev.com {
+  reverse_proxy /api/* dependency-track-apiserver:8080
+  reverse_proxy dependency-track-frontend:80
+  reverse_proxy /swagger/* swagger-ui:8080
+
+  encode gzip
+}
+
+h3. Update Borgmatic Config
+
+Ensure {{borgmatic-config.yaml}} is in the project root and references:
+
+bc.
+repositories:
+  - label: postgres_backup
+    path: /mnt/borg-repository
+    passcommand: cat /run/secrets/borg_passphrase
+
+postgresql_databases:
+  - name: dtrack
+    hostname: postgres
+    port: 5432
+    username: dtrack
+    password_command: cat /run/secrets/db_password
+
+h3. Prepare TLS Certificates
+
+If using self-signed certificates:
+
+bc.
+mkdir -p certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout certs/key.pem -out certs/cert.pem \
+  -subj "/CN=s-track-01.rdmz.isridev.com"
+
+h2. Step 5: Deploy the Stack
+
+h3. Deploy Services
+
+bc.
+docker stack deploy -c docker-compose.yml dtrack
+
+Monitor deployment:
+bc.
+docker stack ps dtrack
+
+h3. Verify Services Are Running
+
+bc.
+docker service ls
+
+Check logs:
+bc.
+docker service logs dtrack_dependency-track-apiserver
+docker service logs dtrack_postgres
+docker service logs dtrack_borgmatic
+
+h2. Step 6: Backup and Restore Procedures
+
+h3. Backup All Volumes
+
+Use the {{backup-and-restore-volume.sh}} script to backup Docker volumes:
+
+bc.
+./backup-and-restore-volume.sh backup-all ~/backups/volumes
+
+This creates:
+* {{~/backups/volumes/dtrack_postgres_data.tar.gz}}
+* {{~/backups/volumes/dtrack_apiserver_data.tar.gz}}
+* {{~/backups/volumes/swagger.tar.gz}}
+
+h3. Backup Specific Volume
+
+bc.
+./backup-and-restore-volume.sh backup dtrack_postgres_data ~/backups/volumes
+
+h3. Restore All Volumes
+
+bc.
+# Stop services first
+docker stack rm dtrack
+
+# Restore volumes
+./backup-and-restore-volume.sh restore-all ~/backups/volumes
+
+# Redeploy stack
+docker stack deploy -c docker-compose.yml dtrack
+
+h3. Restore Specific Volume
+
+bc.
+./backup-and-restore-volume.sh restore dtrack_postgres_data ~/backups/volumes
+
+h2. Step 7: Automated Backups with Borgmatic
+
+The Borgmatic service runs on the Swarm and performs:
+* Logical PostgreSQL backups via {{pg_dump}}
+* Automatic encryption with {{BORG_PASSPHRASE}}
+* Retention: 7 daily, 4 weekly, 12 monthly backups
+* Backup location: {{/mnt/borg-repository}}
+
+Monitor Borgmatic:
+bc.
+docker service logs dtrack_borgmatic
+
+h2. Step 8: Configure LDAP Authentication
+
+DependencyTrack automatically syncs users and teams from LDAP/AD based on {{.env}} variables:
+
+* {{LDAP_SERVER_URL}}: LDAPS endpoint
+* {{LDAP_BASEDN}}: Search base DN
+* {{LDAP_BIND_USERNAME}}: Service account credentials
+* {{LDAP_USER_GROUPS_FILTER}}: User group membership query
+* {{LDAP_TEAMS_SYNCHRONIZATION}}: Enabled
+
+Verify LDAP login:
+bc.
+# Navigate to https://s-track-01.rdmz.isridev.com
+# Use your AD credentials to login
+
+h2. Step 9: Security Hardening
+
+h3. Post-Deployment Secret Destruction
+
+After stack is running, destroy unencrypted secrets:
+
+bc.
+# On deployment server
+rm -f db_password admin_password .env
+chmod 700 /home/deploy/sbom-uploader
+
+# Verify secrets are removed
+ls -la db_password  # Should fail
+
+Secrets remain in Docker Swarm at {{/run/secrets/}} inside containers.
+
+h3. Restrict Directory Access
+
+bc.
+sudo chown root:root ~/sbom-uploader
+sudo chmod 700 ~/sbom-uploader
+
+Only root can read deployment files.
+
+h2. Step 10: Monitoring and Verification
+
+h3. Check Service Health
+
+bc.
+docker stack ps dtrack
+
+h3. View Service Logs
+
+bc.
+# API Server
+docker service logs dtrack_dependency-track-apiserver --follow
+
+# PostgreSQL
+docker service logs dtrack_postgres --follow
+
+# Borgmatic
+docker service logs dtrack_borgmatic --follow
+
+h3. Access Web Interfaces
+
+* *DependencyTrack UI*: https://s-track-01.rdmz.isridev.com
+* *Swagger Editor*: https://s-track-01.rdmz.isridev.com/swagger-editor
+* *Swagger UI*: https://s-track-01.rdmz.isridev.com/swagger-ui
+
+h3. Verify PostgreSQL
+
+bc.
+docker exec dtrack_postgres pg_isready -U dtrack
+
+h2. Troubleshooting
+
+h3. Service Fails to Start
+
+bc.
+# Check for errors
+docker service logs dtrack_dependency-track-apiserver
+docker service ps dtrack_dependency-track-apiserver
+
+# Restart service
+docker service update --force dtrack_dependency-track-apiserver
+
+h3. Database Connection Failed
+
+bc.
+# Verify postgres is healthy
+docker service ps dtrack_postgres
+
+# Check logs
+docker service logs dtrack_postgres
+
+# Verify network connectivity
+docker exec dtrack_dependency-track-apiserver \
+  pg_isready -h postgres -U dtrack
+
+h3. Backup Directory Not Accessible
+
+bc.
+# Verify mount
+mount | grep borg-repository
+
+# If not mounted
+sudo mount -t nfs <server>:<path> /mnt/borg-repository
+sudo chmod 700 /mnt/borg-repository
+
+h3. Borgmatic Backup Fails
+
+bc.
+# Check Borgmatic logs
+docker service logs dtrack_borgmatic
+
+# Manually test backup command
+docker exec dtrack_borgmatic borgmatic --verbosity 2
+
+h2. Volume Recovery Example
+
+Complete workflow to backup and restore volumes:
+
+bc.
+# 1. Backup all volumes
+./backup-and-restore-volume.sh backup-all /mnt/nas/backups
+
+# 2. Verify backups
+ls -lh /mnt/nas/backups/
+
+# 3. If disaster occurs, stop stack
+docker stack rm dtrack
+
+# 4. Restore volumes
+./backup-and-restore-volume.sh restore-all /mnt/nas/backups
+
+# 5. Redeploy stack
+docker stack deploy -c docker-compose.yml dtrack
+
+# 6. Verify services
+docker service ls
+
+h2. Security Model Summary
+
+* *Secrets*: Encrypted locally with AES-256, transferred securely to deployment server
+* *Storage*: Destroyed after deployment; Docker Swarm secrets remain available to containers
+* *Access*: Deployment directory root-only (chmod 700)
+* *Transport*: TLS via Caddy reverse proxy
+* *Authentication*: LDAP/AD integration for user provisioning
+* *Backups*: Encrypted with BORG_PASSPHRASE; stored on network share
+
+h2. Maintenance Tasks
+
+h3. Update Services
+
+Watchtower automatically updates services on schedule. To manually update:
+
+bc.
+docker pull dependencytrack/apiserver:latest
+docker service update --image dependencytrack/apiserver:latest dtrack_dependency-track-apiserver
+
+h3. Rotate Secrets
+
+bc.
+# Update db_password
+echo "new-password" > db_password
+docker secret rm db_password
+docker secret create db_password db_password
+
+# Restart postgres service
+docker service update --force dtrack_postgres
+
+h3. Rotate Backup Encryption
+
+bc.
+# Update BORG_PASSPHRASE in secrets
+# Note: Existing backups remain encrypted with old passphrase
+# New backups use new passphrase
+
+h2. References
+
+* Docker Swarm Documentation: https://docs.docker.com/engine/swarm/
+* DependencyTrack Configuration: https://docs.dependencytrack.org/
+* Borgmatic Documentation: https://torsion.org/borgmatic/
+* Caddy Web Server: https://caddyserver.com/
