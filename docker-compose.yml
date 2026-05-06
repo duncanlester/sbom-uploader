@@ -1,12 +1,11 @@
 services:
   postgres:
+    container_name: dtrack-postgres
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: dtrack
       POSTGRES_USER: dtrack
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-    secrets:
-      - db_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - dtrack_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,24 +15,26 @@ services:
       retries: 5
     networks:
       - dtrack-network
+    restart: unless-stopped
 
   dependency-track-apiserver:
-    image: dtrack-apiserver:local
+    container_name: dtrack-apiserver
+    image: dependencytrack/apiserver:latest
     depends_on:
-      - postgres
-    secrets:
-      - db_password
-      - ldap_bind_password
+      postgres:
+        condition: service_healthy
     environment:
       ALPINE_DATABASE_MODE: external
       ALPINE_DATABASE_URL: jdbc:postgresql://postgres:5432/dtrack
       ALPINE_DATABASE_DRIVER: org.postgresql.Driver
       ALPINE_DATABASE_USERNAME: dtrack
+      ALPINE_DATABASE_PASSWORD: "${POSTGRES_PASSWORD}"
       # --- LDAP / Active Directory ---
       ALPINE_LDAP_ENABLED: "true"
       ALPINE_LDAP_SERVER_URL: "${LDAP_SERVER_URL}"
       ALPINE_LDAP_BASEDN: "${LDAP_BASEDN}"
       ALPINE_LDAP_BIND_USERNAME: "${LDAP_BIND_USERNAME}"
+      ALPINE_LDAP_BIND_PASSWORD: "${LDAP_BIND_PASSWORD}"
       ALPINE_LDAP_AUTH_USERNAME_FORMAT: "${LDAP_AUTH_USERNAME_FORMAT}"
       ALPINE_LDAP_USER_PROVISIONING: "true"
       ALPINE_LDAP_TEAM_SYNCHRONIZATION: "true"
@@ -45,11 +46,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    restart: unless-stopped
     networks:
       - dtrack-network
 
   caddy:
     image: caddy:latest
+    container_name: dtrack-caddy
+    pull_policy: always
     depends_on:
       - dependency-track-frontend
       - dependency-track-apiserver
@@ -71,6 +75,7 @@ services:
     restart: unless-stopped
 
   dependency-track-frontend:
+    container_name: dtrack-frontend
     image: dependencytrack/frontend:latest
     depends_on:
       - dependency-track-apiserver
@@ -81,35 +86,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - dtrack-network
-
-#swagger
-  swagger-editor:
-    image: swaggerapi/swagger-editor:latest
-    depends_on:
-      - dependency-track-apiserver
-    volumes:
-      - swagger:/usr/share/nginx/html/swagger
-      - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
-      - ./dependencytrack-openapi.yaml:/usr/share/nginx/html/swagger/dependencytrack.yaml:ro
-      - ./jenkins-openapi.yaml:/usr/share/nginx/html/swagger/jenkins.yaml:ro
-    environment:
-      # Optional: set an initial file to load in the editor
-      SWAGGER_FILE: /usr/share/nginx/html/swagger/openapi.yaml
-    networks:
-      - dtrack-network
-
-  swagger-ui:
-    image: swaggerapi/swagger-ui:latest
-    depends_on:
-      - dependency-track-apiserver
-    volumes:
-      - swagger:/usr/share/nginx/html/swagger
-      - ./specs:/usr/share/nginx/html/swagger/specs:ro
-    environment:
-      SWAGGER_JSON_URL: https://s-track-01.rdmz.isridev.com/api/api/openapi.yaml
-      VALIDATOR_URL: none
+    restart: unless-stopped
     networks:
       - dtrack-network
 
@@ -118,44 +95,53 @@ services:
     depends_on:
       - postgres
     environment:
-      BORG_PASSPHRASE_FILE: /run/secrets/borg_passphrase
+      BORG_PASSPHRASE: ${BORG_PASSPHRASE}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: UTC
-    secrets:
-      - db_password
-      - borg_passphrase
     volumes:
       - ./borgmatic-config.yaml:/etc/borgmatic.d/borgmatic.yaml:ro
       - /mnt/borg-repository:/mnt/borg-repository
-    networks:
-      - dtrack-network
-
-  watchtower:
-    image: containrrr/watchtower:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: --interval 3600 --cleanup dtrack_dependency-track-apiserver
     restart: unless-stopped
     networks:
       - dtrack-network
 
-secrets:
-  admin_password:
-    external: true
-  db_password:
-    external: true
-  borg_passphrase:
-    external: true
-  ldap_bind_password:
-    external: true
+#swagger
+  swagger-editor:
+    image: swaggerapi/swagger-editor:latest
+    depends_on:
+      - dependency-track-apiserver
+    container_name: swagger-editor
+    volumes:
+      - swagger:/usr/share/nginx/html/swagger
+      - ./watchtower-openapi.yaml:/usr/share/nginx/html/swagger/watchtower.yaml:ro
+      - ./dependencytrack-openapi.yaml:/usr/share/nginx/html/swagger/dependencytrack.yaml:ro
+      - ./jenkins-openapi.yaml:/usr/share/nginx/html/swagger/jenkins.yaml:ro
+    environment:
+      # Optional: set an initial file to load in the editor
+      SWAGGER_FILE: /usr/share/nginx/html/swagger/openapi.yaml
+    restart: unless-stopped
+    networks:
+      - dtrack-network
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    depends_on:
+      - dependency-track-apiserver
+    container_name: swagger-ui
+    volumes:
+      - swagger:/usr/share/nginx/html/swagger
+      - ./specs:/usr/share/nginx/html/swagger/specs:ro
+    environment:
+      SWAGGER_JSON_URL: https://s-track-01.rdmz.isridev.com/api/api/openapi.yaml
+      VALIDATOR_URL: none
+    restart: unless-stopped
+    networks:
+      - dtrack-network
 
 volumes:
   dtrack_postgres_data:
-    external: true
   dtrack_apiserver_data:
-    external: true
   swagger:
-    external: true
 
 networks:
   dtrack-network:
-    external: true

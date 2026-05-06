@@ -5,7 +5,7 @@ source_directories:
 repositories:
   - label: postgres_backup
     path: /mnt/borg-repository
-    passcommand: cat /run/secrets/borg_passphrase
+    passcommand: echo "$BORG_PASSPHRASE"
 
 retention:
   keep_daily: 7
@@ -17,7 +17,7 @@ postgresql_databases:
     hostname: postgres
     port: 5432
     username: dtrack
-    password_command: cat /run/secrets/db_password
+    password_command: echo "$DB_PASSWORD"
     options: null
 
 checks:

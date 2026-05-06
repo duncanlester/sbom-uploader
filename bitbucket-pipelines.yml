@@ -6,13 +6,14 @@ pipelines:
       - step:
           name: Build and Push DependencyTrack API Server
           script:
-            - export IMAGE_NAME="$DOCKER_HUB_USER/dtrack-apiserver"
+            - export ARTIFACTORY_REGISTRY="$ARTIFACTORY_URL/docker-repo"
+            - export IMAGE_NAME="$ARTIFACTORY_REGISTRY/dtrack-apiserver"
             - export IMAGE_TAG="latest"
             - docker build -f Dockerfile.apiserver -t $IMAGE_NAME:$IMAGE_TAG .
-            - echo $DOCKER_HUB_PASSWORD | docker login -u $DOCKER_HUB_USER
-              --password-stdin
+            - echo $ARTIFACTORY_API_TOKEN | docker login -u $ARTIFACTORY_USER
+              --password-stdin $ARTIFACTORY_URL
             - docker push $IMAGE_NAME:$IMAGE_TAG
-            - docker logout
+            - docker logout $ARTIFACTORY_URL
           services:
             - docker
           after-script:
